@@ -116,8 +116,32 @@ let game = {
     isGameStarted: false,
     foods: [],
     acidRainTimer: 0, // Acid Rain Event
-    acidRainTick: 0 // For damage interval
+    acidRainTick: 0, // For damage interval
+    
+    // Player Skills State
+    skillPoints: 0,
+    globalDamageMultiplier: 1.0,
+    globalSpeedMultiplier: 1.0,
+    globalBountyMultiplier: 1.0,
+    globalHpMultiplier: 1.0,
+    timeStopTimer: 0,
+    overloadTimer: 0,
+    baseInvincibleTimer: 0
 };
+
+const PLAYER_SKILLS = [
+    { id: 'dmg_boost', name: '攻擊強化', desc: '首購+5% 之後+1%', cost: 1, type: 'passive' },
+    { id: 'spd_boost', name: '攻速強化', desc: '首購+5% 之後+1%', cost: 1, type: 'passive' },
+    { id: 'bounty_boost', name: '賞金獵人', desc: '擊殺金幣+10%', cost: 2, type: 'passive' },
+    { id: 'fortify', name: '建築學', desc: '塔血量+20%', cost: 1, type: 'passive' },
+    
+    { id: 'time_stop', name: '時間暫停', desc: '暫停敵人 3~5秒', cost: 1, type: 'active' },
+    { id: 'mutation', name: '天地變異', desc: '30%塔隨機變身', cost: 3, type: 'active' },
+    { id: 'repair', name: '緊急修復', desc: '全塔滿血', cost: 2, type: 'active' },
+    { id: 'gold_rain', name: '天降甘霖', desc: '獲得大量金幣', cost: 2, type: 'active' },
+    { id: 'overload', name: '元素超載', desc: '5秒內傷害翻倍', cost: 4, type: 'active' },
+    { id: 'guardian', name: '守護天使', desc: '主堡無敵 10秒', cost: 3, type: 'active' }
+];
 
 // --- Generators ---
 
@@ -223,7 +247,7 @@ const SPECIAL_TOWERS = [
     { id: 24, name: '狂暴塔', element: ELEMENTS.FIRE, range: 4, damage: 300, speed: 45, cost: 600, shape: 'pentagon', skill: 'berserk', desc: '極高傷/隊友扣血' },
     { id: 25, name: '流星塔', element: ELEMENTS.LIGHT, range: 6, damage: 200, speed: 90, cost: 1000, shape: 'circle', skill: 'meteor', desc: '範圍傷害/金錢' },
     { id: 26, name: '冰封塔', element: ELEMENTS.WATER, range: 4, damage: 30, speed: 60, cost: 800, shape: 'square', skill: 'freeze', desc: '凍結敵人 1秒 (無效BOSS)' },
-    { id: 27, name: '貪婪塔', element: ELEMENTS.NONE, range: 5, damage: 1, speed: 60, cost: 3000, shape: 'diamond', skill: 'greed', desc: '0.5%現金傷/每級+0.1%' },
+    { id: 27, name: '貪婪塔', element: ELEMENTS.NONE, range: 5, damage: 1, speed: 60, cost: 3500, shape: 'diamond', skill: 'greed', desc: '0.2%現金傷/每級+0.05%' },
     { id: 28, name: '藤蔓塔', element: ELEMENTS.POISON, range: 4, damage: 40, speed: 45, cost: 900, shape: 'triangle', skill: 'root', desc: '定身BOSS 0.1s/等' },
     { id: 29, name: '戰鼓塔', element: ELEMENTS.FIRE, range: 3, damage: 0, speed: 60, cost: 1200, shape: 'pentagon', skill: 'buff_damage', desc: '增加周圍塔傷害' },
     { id: 30, name: '刀塔', element: ELEMENTS.NONE, range: 1.8, damage: 400, speed: 30, cost: 1500, shape: 'square', skill: 'blade', desc: '短距高傷/殺BOSS' },
@@ -334,6 +358,9 @@ class Enemy {
     }
 
     update() {
+        // Time Stop Logic
+        if (game.timeStopTimer > 0) return;
+
         // Status Effects
         let currentSpeed = this.speed * game.speedFactor;
         
@@ -571,12 +598,13 @@ class Enemy {
         // Extra Gold for Greed Tower Kill
         let extraGold = 0;
         if (killer && killer.skill === 'greed') {
-            extraGold = Math.floor(this.reward * 0.5); // Bonus 50%
+            extraGold = Math.floor(this.reward * 0.2); // Bonus 20%
             game.particles.push(new TextParticle(this.x, this.y - 40, `+$${extraGold}`, '#ffd700'));
         }
 
-        game.gold += this.reward + extraGold;
-        game.score += this.reward * 10;
+    game.gold += (this.reward + extraGold) * game.globalBountyMultiplier;
+    game.score += this.reward * 10;
+
         
         // Silence On Death Logic
         // 5% chance for normal enemies, 100% for Bosses
@@ -604,7 +632,11 @@ class Enemy {
 
     reachEnd() {
         this.dead = true;
-        game.lives--;
+        if (game.baseInvincibleTimer > 0) {
+            game.particles.push(new TextParticle(CANVAS_WIDTH - 100, 30, "無敵防禦!", '#ffffff'));
+        } else {
+            game.lives--;
+        }
         updateUI();
         if (game.lives <= 0) gameOver();
     }
@@ -650,9 +682,9 @@ class Tower {
 
         // Health Logic
         if (typeId === 33) {
-            this.maxHp = 100; // Lower HP for Barricade
+            this.maxHp = 100 * game.globalHpMultiplier; // Lower HP for Barricade
         } else {
-            this.maxHp = 100 * type.tier;
+            this.maxHp = 100 * type.tier * game.globalHpMultiplier;
         }
         this.hp = this.maxHp;
         this.dead = false;
@@ -660,7 +692,9 @@ class Tower {
 
     getDamage() { 
         let dmg = this.baseDamage * Math.pow(1.5, this.level - 1);
-        return Math.floor(dmg * this.damageMultiplier);
+        let multiplier = this.damageMultiplier * game.globalDamageMultiplier;
+        if (game.overloadTimer > 0) multiplier *= 2.0;
+        return Math.floor(dmg * multiplier);
     }
     
     // Sell Value depends on HP
@@ -885,7 +919,7 @@ class Tower {
 
         if (this.cooldownTimer > 0) {
             // Apply speed buff
-            let speedMult = this.attackSpeedMultiplier;
+            let speedMult = this.attackSpeedMultiplier * game.globalSpeedMultiplier;
             
             // Acid Rain Effect: 10% Slower Attack (so multiplier decreases)
             if (game.acidRainTimer > 0) {
@@ -1017,9 +1051,9 @@ class Tower {
         }
 
         // Greed Tower Damage Logic: 
-        // 0.5% of current Gold + 0.1% per level
+        // 0.2% of current Gold + 0.05% per level
         if (this.skill === 'greed') {
-            const pct = 0.005 + ((this.level - 1) * 0.001);
+            const pct = 0.002 + ((this.level - 1) * 0.0005);
             dmg = Math.floor(game.gold * pct);
             // Cap minimum damage
             if (dmg < 10) dmg = 10;
@@ -1372,6 +1406,21 @@ function init() {
         list.appendChild(div);
     });
 
+    // Generate Skills UI
+    const skillList = document.getElementById('skills-list');
+    PLAYER_SKILLS.forEach(s => {
+        const div = document.createElement('div');
+        div.className = 'skill-card';
+        div.id = `skill-${s.id}`;
+        div.innerHTML = `
+            <strong>${s.name}</strong>
+            <div style="font-size:10px; margin:2px 0;">${s.desc}</div>
+            <div style="color:#e91e63;">Cost: ${s.cost} SP</div>
+        `;
+        div.onclick = () => activateSkill(s.id);
+        skillList.appendChild(div);
+    });
+
     // Event Listeners
     canvas.addEventListener('mousedown', onCanvasClick);
     document.getElementById('start-wave-btn').addEventListener('click', startNextWave);
@@ -1405,6 +1454,27 @@ function gameLoop(timestamp) {
 
 function update() {
     if (game.lives <= 0) return;
+
+    // Time Stop Timer
+    if (game.timeStopTimer > 0) {
+        game.timeStopTimer -= game.speedFactor;
+        // Visual effect for time stop?
+        if (Math.random() < 0.1) {
+             const rx = Math.random() * CANVAS_WIDTH;
+             const ry = Math.random() * CANVAS_HEIGHT;
+             game.particles.push(new TextParticle(rx, ry, "II", '#00ffff'));
+        }
+    }
+
+    // Overload Timer
+    if (game.overloadTimer > 0) {
+        game.overloadTimer -= game.speedFactor;
+    }
+
+    // Base Invincible Timer
+    if (game.baseInvincibleTimer > 0) {
+        game.baseInvincibleTimer -= game.speedFactor;
+    }
 
     // Acid Rain Logic
     if (game.acidRainTimer > 0) {
@@ -1988,7 +2058,12 @@ function endWave() {
     // Wave Bonus
     const bonus = 100 + (game.wave * 25);
     game.gold += bonus;
-    showNotification(`波次完成! 獲得 +$${bonus} 金幣。 塔樓已修復。`);
+    
+    // Skill Points
+    const spEarned = (game.wave % 5 === 0) ? 2 : 1; // Boss wave gives 2
+    game.skillPoints += spEarned;
+    
+    showNotification(`波次完成! +$${bonus}，技能點 +${spEarned}`);
     
     // Heal/Buff Towers
     game.towers.forEach(t => {
@@ -2056,7 +2131,19 @@ function updateUI() {
     document.getElementById('gold-display').textContent = game.gold;
     document.getElementById('lives-display').textContent = game.lives;
     document.getElementById('wave-display').textContent = `${game.wave} / 100`;
-    document.getElementById('score-display').textContent = game.score;
+    document.getElementById('sp-display').textContent = game.skillPoints;
+    
+    // Update Skills UI state (visual feedback for cost)
+    PLAYER_SKILLS.forEach(s => {
+        const card = document.getElementById(`skill-${s.id}`);
+        if (card) {
+            if (game.skillPoints < s.cost) {
+                card.classList.add('disabled');
+            } else {
+                card.classList.remove('disabled');
+            }
+        }
+    });
 
     // Next Wave Info
     if (game.wave <= 100) {
@@ -2088,8 +2175,28 @@ function updateTowerInfo() {
     document.getElementById('sel-name').textContent = TOWER_TYPES[t.typeId].name;
     document.getElementById('sel-type').textContent = t.element;
     document.getElementById('sel-hp').textContent = `${Math.floor(t.hp)}/${t.maxHp}`;
-    document.getElementById('sel-dmg').textContent = t.getDamage();
-    document.getElementById('sel-speed').textContent = t.baseCooldown;
+    
+    // Damage Display: Total (Base + Bonus%)
+    // Base means: Tower Stats * Level * Local Buffs
+    const dmgBonus = Math.round((game.globalDamageMultiplier - 1) * 100);
+    const localDmg = Math.floor(t.baseDamage * Math.pow(1.5, t.level - 1) * t.damageMultiplier);
+    const totalDmg = t.getDamage();
+    const overloadText = (game.overloadTimer > 0) ? " [超載]" : "";
+    document.getElementById('sel-dmg').textContent = `${totalDmg} (${localDmg} + ${dmgBonus}%)${overloadText}`;
+
+    // Speed Display: Total (Base + Bonus%)
+    // We display Effective Cooldown (Frames)
+    const spdBonus = Math.round((game.globalSpeedMultiplier - 1) * 100);
+    // Local effective CD (before player skill)
+    const localCd = (t.baseCooldown / t.attackSpeedMultiplier);
+    // Total effective CD
+    const totalCd = (t.baseCooldown / (t.attackSpeedMultiplier * game.globalSpeedMultiplier));
+    
+    // Format to 1 decimal if needed, remove .0
+    const fmt = (num) => parseFloat(num.toFixed(1));
+    
+    document.getElementById('sel-speed').textContent = `${fmt(totalCd)} (${fmt(localCd)} + ${spdBonus}%)`;
+
     document.getElementById('sel-range').textContent = t.baseRange / TILE_SIZE;
     document.getElementById('sel-level').textContent = t.level;
     
@@ -2150,13 +2257,22 @@ function showTooltip(type, e) {
     else if (type.cooldown <= 90) speedText += " (慢)";
     else speedText += " (極慢)";
 
+    const dmgBonus = Math.round((game.globalDamageMultiplier - 1) * 100);
+    const totalDmg = Math.floor(type.damage * game.globalDamageMultiplier);
+    const overloadText = (game.overloadTimer > 0) ? " [超載x2]" : "";
+    
+    const spdBonus = Math.round((game.globalSpeedMultiplier - 1) * 100);
+    const totalCd = (type.cooldown / game.globalSpeedMultiplier);
+    const fmt = (num) => parseFloat(num.toFixed(1));
+
     tt.innerHTML = `
         <strong>${type.name}</strong>
-        <div class="tt-prop"><span>傷害:</span> <span class="tt-val">${type.damage}</span></div>
-        <div class="tt-prop"><span>攻速:</span> <span class="tt-val">${speedText}</span></div>
+        <div class="tt-prop"><span>傷害:</span> <span class="tt-val">${totalDmg} (${type.damage} + ${dmgBonus}%)${overloadText}</span></div>
+        <div class="tt-prop"><span>攻速:</span> <span class="tt-val">${fmt(totalCd)} (${type.cooldown} + ${spdBonus}%)</span></div>
         <div class="tt-prop"><span>範圍:</span> <span class="tt-val">${type.range/TILE_SIZE}</span></div>
         <div class="tt-prop"><span>屬性:</span> <span class="tt-val" style="color:${type.color}">${type.element}</span></div>
         <div class="tt-desc">${skillText}</div>
+        <div style="font-size:10px; color:#888; margin-top:5px;">${speedText}</div>
     `;
     
     moveTooltip(e);
@@ -2184,6 +2300,120 @@ function moveTooltip(e) {
 function hideTooltip() {
     document.getElementById('tooltip').style.display = 'none';
 }
+
+// --- Skill System ---
+
+function switchTab(tab) {
+    const tList = document.getElementById('towers-list');
+    const sList = document.getElementById('skills-list');
+    const btnT = document.getElementById('tab-towers');
+    const btnS = document.getElementById('tab-skills');
+    
+    if (tab === 'towers') {
+        tList.style.display = 'grid';
+        sList.style.display = 'none';
+        btnT.classList.add('active');
+        btnS.classList.remove('active');
+    } else {
+        tList.style.display = 'none';
+        sList.style.display = 'grid';
+        btnT.classList.remove('active');
+        btnS.classList.add('active');
+    }
+}
+
+function activateSkill(id) {
+    const skill = PLAYER_SKILLS.find(s => s.id === id);
+    if (!skill) return;
+    
+    if (game.skillPoints >= skill.cost) {
+        game.skillPoints -= skill.cost;
+        
+        if (id === 'dmg_boost') {
+            // First time +5%, then +1%
+            const increment = (game.globalDamageMultiplier === 1.0) ? 0.05 : 0.01;
+            game.globalDamageMultiplier += increment;
+            showNotification(`全塔傷害 +${Math.round(increment*100)}%! (目前: ${Math.round((game.globalDamageMultiplier-1)*100)}%)`);
+        } else if (id === 'spd_boost') {
+            // First time +5%, then +1%
+            const increment = (game.globalSpeedMultiplier === 1.0) ? 0.05 : 0.01;
+            game.globalSpeedMultiplier += increment;
+            showNotification(`全塔攻速 +${Math.round(increment*100)}%! (目前: ${Math.round((game.globalSpeedMultiplier-1)*100)}%)`);
+        } else if (id === 'time_stop') {
+            // Random 3 ~ 5 seconds
+            const durationSec = 3 + Math.random() * 2;
+            const durationFrames = Math.floor(durationSec * FPS);
+            game.timeStopTimer += durationFrames;
+            showNotification(`時間暫停 ${durationSec.toFixed(1)}秒!`);
+        } else if (id === 'mutation') {
+            // Heaven and Earth Mutation
+            const activeTowers = game.towers.filter(t => !t.dead);
+            if (activeTowers.length === 0) {
+                showNotification("場上沒有防禦塔!");
+                // Refund
+                game.skillPoints += skill.cost;
+                return;
+            }
+
+            // Shuffle array to pick random 30%
+            for (let i = activeTowers.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [activeTowers[i], activeTowers[j]] = [activeTowers[j], activeTowers[i]];
+            }
+
+            const countToMorph = Math.ceil(activeTowers.length * 0.3);
+            let morphedCount = 0;
+
+            for (let i = 0; i < countToMorph; i++) {
+                activeTowers[i].morph();
+                morphedCount++;
+            }
+            
+            showNotification(`天地變異! ${morphedCount} 座塔發生了變化!`);
+        } else if (id === 'bounty_boost') {
+            game.globalBountyMultiplier += 0.1;
+            showNotification(`賞金獵人! 擊殺獎勵 +10% (目前: x${game.globalBountyMultiplier.toFixed(1)})`);
+        } else if (id === 'fortify') {
+            game.globalHpMultiplier += 0.2;
+            // Update existing towers maxHp
+            game.towers.forEach(t => {
+                const type = TOWER_TYPES[t.typeId];
+                const baseHp = (t.typeId === 33) ? 100 : (100 * type.tier);
+                t.maxHp = baseHp * game.globalHpMultiplier;
+                t.hp = t.hp * 1.2; // Heal proportional
+            });
+            showNotification(`建築學! 塔血量 +20% (目前: x${game.globalHpMultiplier.toFixed(1)})`);
+        } else if (id === 'repair') {
+            game.towers.forEach(t => {
+                t.hp = t.maxHp;
+                t.dead = false; // Revive? Maybe not, keep dead towers dead or revive them? 
+                // "Emergency Repair" usually implies fixing active towers. 
+                // Let's stick to healing active ones. Dead are dead.
+                // Wait, if acid rain kills them, we might want to revive? 
+                // Let's just heal active ones for now to be safe.
+            });
+            showNotification("緊急修復! 所有塔血量已補滿!");
+        } else if (id === 'gold_rain') {
+            const amount = 500 + (game.wave * 50);
+            game.gold += amount;
+            showNotification(`天降甘霖! 獲得 $${amount}`);
+        } else if (id === 'overload') {
+            game.overloadTimer += 450; // 5s @ 90fps
+            showNotification("元素超載! 傷害翻倍持續 5秒!");
+        } else if (id === 'guardian') {
+            game.baseInvincibleTimer += 900; // 10s @ 90fps
+            showNotification("守護天使! 主堡無敵持續 10秒!");
+        }
+        
+        updateUI();
+    } else {
+        showNotification("技能點不足!");
+    }
+}
+
+// Expose to window for HTML onclick
+window.switchTab = switchTab;
+window.activateSkill = activateSkill;
 
 // Boot
 window.onload = init;
