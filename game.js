@@ -149,7 +149,13 @@ const TOWER_NAMES = [
     '毀滅戰車',   // NONE
     '神聖新星',   // LIGHT
     '狙擊精英',   // DARK (Sniper - ID 18)
-    '狂暴機槍'    // WATER (Rapid - ID 19)
+    '狂暴機槍',   // WATER (Rapid - ID 19)
+    '大砲塔',     // NONE (Cannon - ID 20)
+    '黑洞塔',     // DARK (BlackHole - ID 21)
+    '隨機塔',     // NONE (Random - ID 22)
+    '輔助攻速塔', // WIND (Support - ID 23)
+    '狂暴塔',     // FIRE (Berserk - ID 24)
+    '流星塔'      // LIGHT (Meteor - ID 25)
 ];
 
 for (let i = 0; i < 20; i++) {
@@ -204,6 +210,33 @@ for (let i = 0; i < 20; i++) {
         skillDesc: skillDesc
     });
 }
+
+// Add New Special Towers
+const SPECIAL_TOWERS = [
+    { id: 20, name: '大砲塔', element: ELEMENTS.NONE, range: 5, damage: 50, speed: 90, cost: 250, shape: 'square', skill: 'aoe', desc: '範圍傷害' },
+    { id: 21, name: '黑洞塔', element: ELEMENTS.DARK, range: 5, damage: 500, speed: 120, cost: 1000, shape: 'circle', skill: 'blackhole', desc: '極高黑洞傷害' },
+    { id: 22, name: '隨機塔', element: ELEMENTS.NONE, range: 4, damage: 20, speed: 60, cost: 500, shape: 'diamond', skill: 'transform', desc: '每10s變身' },
+    { id: 23, name: '輔助攻速塔', element: ELEMENTS.WIND, range: 4, damage: 5, speed: 60, cost: 400, shape: 'triangle', skill: 'buff_speed', desc: '增加隊友攻速' },
+    { id: 24, name: '狂暴塔', element: ELEMENTS.FIRE, range: 4, damage: 300, speed: 45, cost: 600, shape: 'pentagon', skill: 'berserk', desc: '極高傷/隊友扣血' },
+    { id: 25, name: '流星塔', element: ELEMENTS.LIGHT, range: 6, damage: 200, speed: 90, cost: 1000, shape: 'circle', skill: 'meteor', desc: '範圍傷害/金錢' }
+];
+
+SPECIAL_TOWERS.forEach(t => {
+    TOWER_TYPES.push({
+        id: t.id,
+        name: t.name,
+        element: t.element,
+        range: t.range * TILE_SIZE,
+        damage: t.damage,
+        cooldown: t.speed,
+        cost: t.cost,
+        color: ELEMENT_COLORS[t.element],
+        shape: t.shape,
+        tier: 3,
+        skill: t.skill,
+        skillDesc: t.desc
+    });
+});
 
 // Generate 100 Waves - HARDCORE
 const WAVES = [];
@@ -294,7 +327,9 @@ class Enemy {
             
             if (nearbyTower) {
                 // Attack!
-                nearbyTower.takeDamage(10 * (this.isBoss ? 5 : 1)); // Boss hits hard
+                let attackDmg = 10 * (this.isBoss ? 5 : 1); // Boss hits hard
+                if (game.enemyDamageMultiplier) attackDmg *= game.enemyDamageMultiplier; // Random event
+                nearbyTower.takeDamage(attackDmg); 
                 game.projectiles.push(new Projectile(this.x, this.y, nearbyTower, 0, this.element, 5)); // Visual only
                 this.attackCooldown = 60; // 1 sec attack rate
             }
@@ -421,6 +456,10 @@ class Tower {
         this.skillTimer = 0; // For passive skills
         this.activeSkillCd = 0; // For active skills
 
+        // New properties for special towers
+        this.transformTimer = 0;
+        this.attackSpeedMultiplier = 1.0;
+
         // Health Logic
         this.maxHp = 100 * type.tier;
         this.hp = this.maxHp;
@@ -452,6 +491,27 @@ class Tower {
         this.hp += amount;
         if (this.hp > this.maxHp) this.hp = this.maxHp;
         game.particles.push(new TextParticle(this.x, this.y - 20, `+${amount}`, '#00ff00'));
+    }
+
+    morph() {
+        // Morph into random tower (excluding Random Tower ID 22)
+        let newId = Math.floor(Math.random() * TOWER_TYPES.length);
+        if (newId === 22) newId = 0; // Fallback
+        
+        const type = TOWER_TYPES[newId];
+        this.typeId = newId;
+        this.baseDamage = type.damage;
+        this.baseRange = type.range;
+        this.baseCooldown = type.cooldown;
+        this.element = type.element;
+        this.shape = type.shape;
+        this.color = type.color;
+        this.skill = type.skill;
+        
+        // Reset some state
+        this.transformTimer = 0;
+        game.particles.push(new TextParticle(this.x, this.y - 30, "變身!", '#ffffff'));
+        if (game.selectedTower === this) updateTowerInfo();
     }
 
     triggerActiveSkill() {
@@ -495,17 +555,48 @@ class Tower {
              if (game.selectedTower === this && this.activeSkillCd === 0) updateTowerInfo();
         }
 
+        // --- Special Tower Logic ---
+        
+        // Random Tower: Transform
+        if (this.skill === 'transform') {
+            this.transformTimer += game.speedFactor;
+            if (this.transformTimer >= 900) { // 10s @ 90fps
+                this.morph();
+            }
+        }
+
+        // Support Tower: Buff neighbors
+        // Reset multiplier first
+        this.attackSpeedMultiplier = 1.0;
+        
+        // Look for buffers
+        // Optimization: Global loop might be better, but per tower logic keeps it encapsulated
+        // We only check if WE are being buffed
+        // Actually, let the buffer buff us.
+        // But to keep update() independent, let's scan for buffers nearby.
+        // Or simpler: Iterate all towers, if 'buff_speed', find neighbors.
+        // Let's do the latter here, scanning FOR buffers.
+        for (const other of game.towers) {
+            if (other !== this && !other.dead && other.skill === 'buff_speed') {
+                const dist = Math.sqrt((other.x - this.x)**2 + (other.y - this.y)**2);
+                if (dist <= other.baseRange) {
+                    this.attackSpeedMultiplier = 2.0; // Double speed
+                    break; // Non-stacking
+                }
+            }
+        }
+
         // Passive Skills Logic
         this.skillTimer += game.speedFactor;
         
-        if (this.skill === 'gold' && this.skillTimer >= 300) { // 5s
+        if ((this.skill === 'gold' || this.skill === 'meteor') && this.skillTimer >= 450) { // 5s @ 90fps
             game.gold += 10;
             game.particles.push(new TextParticle(this.x, this.y - 20, `+$10`, '#ffd700'));
             this.skillTimer = 0;
             updateUI();
         }
         
-        if (this.skill === 'heal' && this.skillTimer >= 60) { // 1s
+        if (this.skill === 'heal' && this.skillTimer >= 90) { // 1s
             // Find damaged neighbor
             const neighbor = game.towers.find(t => t !== this && !t.dead && t.hp < t.maxHp && 
                 Math.sqrt((t.x-this.x)**2 + (t.y-this.y)**2) <= TILE_SIZE * 3);
@@ -518,7 +609,8 @@ class Tower {
         }
 
         if (this.cooldownTimer > 0) {
-            this.cooldownTimer -= game.speedFactor;
+            // Apply speed buff
+            this.cooldownTimer -= game.speedFactor * this.attackSpeedMultiplier;
             return;
         }
 
@@ -551,6 +643,16 @@ class Tower {
         if (this.skill === 'crit' && Math.random() < 0.25) { // 25% Crit
             dmg *= 2;
             isCrit = true;
+        }
+
+        // Berserk Logic: Drain ally HP
+        if (this.skill === 'berserk') {
+            const neighbor = game.towers.find(t => t !== this && !t.dead && 
+                Math.sqrt((t.x-this.x)**2 + (t.y-this.y)**2) <= TILE_SIZE * 2);
+            if (neighbor) {
+                neighbor.takeDamage(10); // Sacrifice
+                game.particles.push(new TextParticle(neighbor.x, neighbor.y - 10, "獻祭", '#880000'));
+            }
         }
 
         game.projectiles.push(new Projectile(
@@ -629,6 +731,22 @@ class Projectile {
 
         if (dist <= move) {
             this.target.takeDamage(this.damage, this.element);
+            
+            // AOE Logic
+            if (this.skillEffect === 'aoe' || this.skillEffect === 'blackhole' || this.skillEffect === 'meteor') {
+                const radius = this.skillEffect === 'blackhole' ? 150 : (this.skillEffect === 'meteor' ? 120 : 100);
+                game.enemies.forEach(e => {
+                    if (e !== this.target && !e.dead) {
+                        const d = Math.sqrt((e.x - this.target.x)**2 + (e.y - this.target.y)**2);
+                        if (d <= radius) {
+                            e.takeDamage(this.damage * (this.skillEffect === 'blackhole' ? 0.8 : 0.5), this.element);
+                        }
+                    }
+                });
+                // Visual Effect
+                game.particles.push(new TextParticle(this.target.x, this.target.y - 20, "BOOM!", this.element === '暗' ? '#000' : '#ffa500'));
+            }
+
             if (this.isCrit) {
                  game.particles.push(new TextParticle(this.target.x, this.target.y - 15, "暴擊!", '#ff0000'));
             }
@@ -1042,6 +1160,88 @@ function isPath(x, y) {
     return false;
 }
 
+// --- Random Events ---
+const EVENTS = [
+    { id: 0, name: "無事發生", desc: "風平浪靜的一天", weight: 40 },
+    { id: 1, name: "怪物復甦", desc: "所有怪物血量瞬間回滿!", weight: 5, action: 'heal_enemies' },
+    { id: 2, name: "血量倍增", desc: "本波怪物血量翻倍!", weight: 10, action: 'double_hp' },
+    { id: 3, name: "急速行軍", desc: "本波怪物移動速度增加!", weight: 10, action: 'speed_up' },
+    { id: 4, name: "建築腐蝕", desc: "所有防禦塔血量減半!", weight: 5, action: 'tower_decay' },
+    { id: 5, name: "天降橫財", desc: "獲得大量金錢!", weight: 10, action: 'bonus_gold' },
+    { id: 6, name: "虛空吞噬", desc: "一座隨機防禦塔消失了...", weight: 5, action: 'destroy_tower' },
+    { id: 7, name: "元素突變", desc: "怪物屬性發生改變!", weight: 10, action: 'change_element' },
+    { id: 8, name: "狂暴怒火", desc: "怪物攻擊力倍增!", weight: 5, action: 'double_dmg' } // Note: Enemies attack towers
+];
+
+function triggerRandomEvent() {
+    const roll = Math.random() * 100;
+    let cum = 0;
+    let event = EVENTS[0];
+    
+    // Normalize weights if needed, here just basic check
+    // Total weight = 40+5+10+10+5+10+5+10+5 = 100
+    for (const e of EVENTS) {
+        cum += e.weight;
+        if (roll < cum) {
+            event = e;
+            break;
+        }
+    }
+
+    if (event.id === 0) return; // Nothing happens
+
+    showNotification(`隨機事件: ${event.name} - ${event.desc}`);
+    
+    // Apply Effects
+    switch (event.action) {
+        case 'heal_enemies':
+            game.enemies.forEach(e => e.hp = e.maxHp);
+            break;
+        case 'double_hp':
+            // Apply to spawning config or active enemies? 
+            // Better apply to current config for this wave spawning or active ones
+            // Let's apply to config AND active
+            const config = WAVES[game.wave - 1];
+            if(config) config.hp *= 2; 
+            game.enemies.forEach(e => { e.maxHp *= 2; e.hp *= 2; });
+            break;
+        case 'speed_up':
+            const configS = WAVES[game.wave - 1];
+            if(configS) configS.speed *= 1.5;
+            game.enemies.forEach(e => e.speed *= 1.5);
+            break;
+        case 'tower_decay':
+            game.towers.forEach(t => t.hp = Math.floor(t.hp / 2));
+            break;
+        case 'bonus_gold':
+            game.gold += 500 + (game.wave * 100);
+            updateUI();
+            break;
+        case 'destroy_tower':
+            if (game.towers.length > 0) {
+                const idx = Math.floor(Math.random() * game.towers.length);
+                const t = game.towers[idx];
+                t.dead = true;
+                game.particles.push(new TextParticle(t.x, t.y, "消失!", '#888'));
+            }
+            break;
+        case 'change_element':
+            const newElemKey = ELEMENT_KEYS_ORIGINAL[Math.floor(Math.random() * 8)];
+            const newElem = ELEMENTS[newElemKey];
+            const configE = WAVES[game.wave - 1];
+            if(configE) configE.element = newElem;
+            game.enemies.forEach(e => e.element = newElem);
+            break;
+        case 'double_dmg':
+            // Logic handled in enemy attack, maybe add a flag to enemy or global multiplier
+            // For simplicity, let's just use a global flag or modify enemy property if we had one
+            // We hardcoded damage in Enemy.update(). Let's add a property to game or enemy
+            // Simplest: Add damageMultiplier to game state for this wave
+            game.enemyDamageMultiplier = 2.0; 
+            break;
+    }
+}
+
 // --- Game Flow ---
 
 function startNextWave() {
@@ -1049,6 +1249,13 @@ function startNextWave() {
     
     game.waveActive = true;
     game.autoNextWaveTimer = 0; // Clear timer
+    
+    // Reset Wave Specific Modifiers
+    game.enemyDamageMultiplier = 1.0; 
+
+    // Trigger Event at start of wave
+    if (game.wave > 1) triggerRandomEvent(); // Skip wave 1 for fairness
+
     const config = WAVES[game.wave - 1];
     game.enemiesToSpawn = config.count;
     game.spawnTimer = 0;
