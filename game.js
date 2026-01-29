@@ -137,7 +137,14 @@ let game = {
     globalHpMultiplier: 1.0,
     timeStopTimer: 0,
     overloadTimer: 0,
-    baseInvincibleTimer: 0
+    baseInvincibleTimer: 0,
+    
+    // Event Flags
+    fogActive: false,
+    critBoostActive: false,
+    plagueActive: false,
+    overclockActive: false,
+    discountActive: false
 };
 
 const PLAYER_SKILLS = [
@@ -709,11 +716,16 @@ class Tower {
         this.dead = false;
 
         // Terrain Range Buff (Ocean)
-        if (game.terrain && game.terrain[x][y]) {
+            if (game.terrain && game.terrain[x][y]) {
              const tid = game.terrain[x][y];
              if (tid === 2 && this.element === ELEMENTS.WATER) { 
                  this.baseRange *= 1.25; 
              }
+        }
+        
+        // Fog Effect
+        if (game.fogActive) {
+            this.baseRange *= 0.7;
         }
     }
 
@@ -740,7 +752,11 @@ class Tower {
         return Math.floor(baseSell * hpPct);
     }
     
-    getUpgradeCost() { return Math.floor(TOWER_TYPES[this.typeId].cost * Math.pow(1.5, this.level)); }
+    getUpgradeCost() { 
+        let cost = Math.floor(TOWER_TYPES[this.typeId].cost * Math.pow(1.5, this.level));
+        if (game.discountActive) cost = Math.floor(cost * 0.5);
+        return cost;
+    }
 
     takeDamage(amount) {
         this.hp -= amount;
@@ -785,6 +801,11 @@ class Tower {
              }
         }
         
+        // Fog Effect
+        if (game.fogActive) {
+            this.baseRange *= 0.7;
+        }
+        
         if (game.selectedTower === this) updateTowerInfo();
     }
 
@@ -823,6 +844,17 @@ class Tower {
 
     update() {
         if (this.dead) return;
+        
+        // Overclock Self Damage
+        if (game.overclockActive) {
+            if (Math.random() < 0.05) { // Occasional damage tick
+                 this.hp -= 1; // Slow drain
+                 if (this.hp <= 0) { 
+                     this.dead = true; 
+                     game.particles.push(new TextParticle(this.x, this.y - 20, "過載燒毀!", '#888'));
+                 }
+            }
+        }
         
         // Passive Regen
         if (this.hp < this.maxHp && Math.random() < 0.01) this.hp++;
@@ -971,6 +1003,16 @@ class Tower {
                 speedMult *= 0.9;
             }
 
+            // Plague Effect: -30% Speed
+            if (game.plagueActive) {
+                speedMult *= 0.7;
+            }
+            
+            // Overclock Effect: +50% Speed
+            if (game.overclockActive) {
+                speedMult *= 1.5;
+            }
+
             // Terrain Speed Buff
             if (game.terrain && game.terrain[this.gridX][this.gridY]) {
                 const tid = game.terrain[this.gridX][this.gridY];
@@ -1091,6 +1133,7 @@ class Tower {
         
         let critChance = 0.0;
         if (this.skill === 'crit') critChance += 0.25;
+        if (game.critBoostActive) critChance += 0.5; // Event Buff
         critChance += this.critChanceBonus;
 
         if (Math.random() < critChance) { 
@@ -1968,12 +2011,17 @@ function showNotification(msg) {
 }
 
 function selectTowerToBuild(id) {
-    if (game.gold >= TOWER_TYPES[id].cost) {
+    let cost = TOWER_TYPES[id].cost;
+    if (game.discountActive) cost = Math.floor(cost * 0.5);
+
+    if (game.gold >= cost) {
         buildModeId = id;
         game.selectedTower = null;
         updateUI();
         document.body.style.cursor = 'crosshair';
-        showNotification(`已選擇 ${TOWER_TYPES[id].name}。請點擊地圖建造。`);
+        let msg = `已選擇 ${TOWER_TYPES[id].name}。請點擊地圖建造。`;
+        if (game.discountActive) msg += " (半價!)";
+        showNotification(msg);
     } else {
         showNotification("金錢不足!");
     }
@@ -2041,8 +2089,11 @@ function onCanvasClick(e) {
 
         // Build
         const type = TOWER_TYPES[buildModeId];
-        if (game.gold >= type.cost) {
-            game.gold -= type.cost;
+        let cost = type.cost;
+        if (game.discountActive) cost = Math.floor(cost * 0.5);
+
+        if (game.gold >= cost) {
+            game.gold -= cost;
             game.towers.push(new Tower(buildModeId, x, y));
             buildModeId = null;
             document.body.style.cursor = 'default';
@@ -2123,17 +2174,26 @@ const EVENTS = [
     { id: 5, name: "天降橫財", desc: "獲得大量金錢!", weight: 10, action: 'bonus_gold' },
     { id: 6, name: "虛空吞噬", desc: "一座隨機防禦塔消失了...", weight: 5, action: 'destroy_tower' },
     { id: 7, name: "元素突變", desc: "怪物屬性發生改變!", weight: 10, action: 'change_element' },
-    { id: 8, name: "狂暴怒火", desc: "怪物攻擊力倍增!", weight: 5, action: 'double_dmg' }, // Note: Enemies attack towers
-    { id: 9, name: "酸雨腐蝕", desc: "全場減速且塔持續扣血!", weight: 10, action: 'acid_rain' }
+    { id: 8, name: "狂暴怒火", desc: "怪物攻擊力倍增!", weight: 5, action: 'double_dmg' },
+    { id: 9, name: "酸雨腐蝕", desc: "全場減速且塔持續扣血!", weight: 10, action: 'acid_rain' },
+    { id: 10, name: "迷霧", desc: "所有塔射程降低 30%!", weight: 10, action: 'fog' },
+    { id: 11, name: "暴擊時刻", desc: "所有塔暴擊率大幅提升!", weight: 10, action: 'crit_boost' },
+    { id: 12, name: "瘟疫", desc: "所有塔攻速降低 30%!", weight: 10, action: 'plague' },
+    { id: 13, name: "金身", desc: "怪物無敵 5秒!", weight: 5, action: 'invincible_enemies' },
+    { id: 14, name: "過載", desc: "塔攻速+50% 但持續扣血!", weight: 10, action: 'overclock' },
+    { id: 15, name: "地震", desc: "所有怪物暈眩 3秒!", weight: 10, action: 'earthquake' },
+    { id: 16, name: "大特價", desc: "本波升級與建造半價!", weight: 10, action: 'discount' },
+    { id: 17, name: "增援", desc: "敵軍獲得額外增援!", weight: 10, action: 'reinforce' },
+    { id: 18, name: "短路", desc: "隨機 3座塔暫時癱瘓!", weight: 5, action: 'silence_towers' },
+    { id: 19, name: "寶藏土撥鼠", desc: "出現攜帶鉅款的敵人!", weight: 5, action: 'treasure_enemy' }
 ];
 
 function triggerRandomEvent() {
-    const roll = Math.random() * 110; // Increased weight sum
+    const roll = Math.random() * 210; // Increased total weight
     let cum = 0;
     let event = EVENTS[0];
     
-    // Normalize weights if needed, here just basic check
-    // Total weight = 40+5+10+10+5+10+5+10+5+10 = 110
+    // Normalize weights
     for (const e of EVENTS) {
         cum += e.weight;
         if (roll < cum) {
@@ -2152,9 +2212,6 @@ function triggerRandomEvent() {
             game.enemies.forEach(e => e.hp = e.maxHp);
             break;
         case 'double_hp':
-            // Apply to spawning config or active enemies? 
-            // Better apply to current config for this wave spawning or active ones
-            // Let's apply to config AND active
             const config = WAVES[game.wave - 1];
             if(config) config.hp *= 2; 
             game.enemies.forEach(e => { e.maxHp *= 2; e.hp *= 2; });
@@ -2193,16 +2250,63 @@ function triggerRandomEvent() {
             });
             break;
         case 'double_dmg':
-            // Logic handled in enemy attack, maybe add a flag to enemy or global multiplier
-            // For simplicity, let's just use a global flag or modify enemy property if we had one
-            // We hardcoded damage in Enemy.update(). Let's add a property to game or enemy
-            // Simplest: Add damageMultiplier to game state for this wave
             game.enemyDamageMultiplier = 2.0; 
             break;
         case 'acid_rain':
-            // Random duration 10-20 seconds (900-1800 frames)
             const durationSec = 10 + Math.random() * 10;
             game.acidRainTimer = Math.floor(durationSec * FPS);
+            break;
+        case 'fog':
+            game.fogActive = true;
+            break;
+        case 'crit_boost':
+            game.critBoostActive = true;
+            break;
+        case 'plague':
+            game.plagueActive = true;
+            break;
+        case 'invincible_enemies':
+            game.enemies.forEach(e => e.invincible = 450); // 5s
+            break;
+        case 'overclock':
+            game.overclockActive = true;
+            break;
+        case 'earthquake':
+            game.enemies.forEach(e => {
+                e.frozenHard = 270; // 3s
+                game.particles.push(new TextParticle(e.x, e.y - 30, "震暈!", '#8D6E63'));
+            });
+            break;
+        case 'discount':
+            game.discountActive = true;
+            break;
+        case 'reinforce':
+            // Spawn 5 random enemies
+            for(let i=0; i<5; i++) {
+                game.enemies.push(new Enemy(Math.max(0, game.wave - 1), true));
+            }
+            break;
+        case 'silence_towers':
+            if (game.towers.length > 0) {
+                let count = 3;
+                const shuffled = [...game.towers].sort(() => 0.5 - Math.random());
+                for(let i=0; i<Math.min(count, shuffled.length); i++) {
+                    shuffled[i].silenced = 900; // 10s
+                    game.particles.push(new TextParticle(shuffled[i].x, shuffled[i].y - 30, "短路!", '#888'));
+                }
+            }
+            break;
+        case 'treasure_enemy':
+            const goblin = new Enemy(game.wave - 1);
+            goblin.hp *= 2;
+            goblin.speed *= 2;
+            goblin.reward *= 10; // Huge reward
+            goblin.scale = 0.8;
+            goblin.elements = [ELEMENTS.NONE]; // Neutral
+            // Visual distinction
+            game.enemies.push(goblin);
+            // We need to mark it visually in draw? Or just trust the particle
+            game.particles.push(new TextParticle(goblin.x, goblin.y - 40, "寶藏!", '#FFD700'));
             break;
     }
 }
@@ -2217,8 +2321,14 @@ function startNextWave() {
     
     // Reset Wave Specific Modifiers
     game.enemyDamageMultiplier = 1.0; 
-    game.acidRainTimer = 0; // Clear weather on new wave start? Or let it persist? 
-    // Usually weather clears. Let's reset it to be nice.
+    game.acidRainTimer = 0; 
+    
+    // Clear Event Flags
+    game.fogActive = false;
+    game.critBoostActive = false;
+    game.plagueActive = false;
+    game.overclockActive = false;
+    game.discountActive = false;
 
     // Trigger Event at start of wave
     if (game.wave > 1) triggerRandomEvent(); // Skip wave 1 for fairness
