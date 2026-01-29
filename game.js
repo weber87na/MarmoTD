@@ -209,15 +209,23 @@ for (let i = 0; i < 20; i++) {
     let skillDesc = '';
     
     // Assign Skills based on Index/Element
-    // 0 Light -> Heal
+    // 0, 8 NONE -> Heal (Medic)
     if (i === 0 || i === 8) { skill = 'heal'; skillDesc = '治療周圍'; }
-    // 2 Water -> Slow (Passive)
+    // 16 NONE -> Bash (Stun)
+    else if (i === 16) { skill = 'bash'; skillDesc = '機率擊暈'; }
+    // 1 Light -> Chain (Chain Lightning)
+    else if (element === ELEMENTS.LIGHT) { skill = 'chain'; skillDesc = '連鎖閃電'; }
+    // 2 Dark -> Execute (Bonus dmg on low HP)
+    else if (element === ELEMENTS.DARK && i !== 18 && i !== 21) { skill = 'execute'; skillDesc = '斬殺傷害'; }
+    // 3 Water -> Slow
     else if (element === ELEMENTS.WATER) { skill = 'slow'; skillDesc = '緩速敵人'; }
-    // 3 Fire -> Crit (Passive)
+    // 4 Fire -> Crit
     else if (element === ELEMENTS.FIRE) { skill = 'crit'; skillDesc = '暴擊機率'; }
-    // 6 Earth -> Gold (Passive)
+    // 5 Wind -> Knockback
+    else if (element === ELEMENTS.WIND) { skill = 'knockback'; skillDesc = '擊退敵人'; }
+    // 6 Earth -> Gold
     else if (element === ELEMENTS.EARTH) { skill = 'gold'; skillDesc = '生產黃金'; }
-    // 7 Poison -> Poison (Passive)
+    // 7 Poison -> Poison
     else if (element === ELEMENTS.POISON) { skill = 'poison'; skillDesc = '毒素傷害'; }
     // 18 Sniper -> Nuke (Active)
     else if (i === 18) { skill = 'nuke'; skillDesc = '主動: 核彈'; }
@@ -242,21 +250,21 @@ for (let i = 0; i < 20; i++) {
 const SPECIAL_TOWERS = [
     { id: 20, name: '大砲塔', element: ELEMENTS.NONE, range: 5, damage: 50, speed: 90, cost: 250, shape: 'square', skill: 'aoe', desc: '範圍傷害' },
     { id: 21, name: '黑洞塔', element: ELEMENTS.DARK, range: 5, damage: 500, speed: 120, cost: 1000, shape: 'circle', skill: 'blackhole', desc: '極高黑洞傷害' },
-    { id: 22, name: '隨機塔', element: ELEMENTS.NONE, range: 4, damage: 20, speed: 60, cost: 500, shape: 'diamond', skill: 'transform', desc: '每10s變身' },
+    { id: 22, name: '隨機塔', element: ELEMENTS.NONE, range: 4, damage: 30, speed: 60, cost: 500, shape: 'diamond', skill: 'transform', desc: '每5s變身/BUFF' },
     { id: 23, name: '輔助攻速塔', element: ELEMENTS.WIND, range: 4, damage: 5, speed: 60, cost: 400, shape: 'triangle', skill: 'buff_speed', desc: '增加隊友攻速' },
     { id: 24, name: '狂暴塔', element: ELEMENTS.FIRE, range: 4, damage: 300, speed: 45, cost: 600, shape: 'pentagon', skill: 'berserk', desc: '極高傷/隊友扣血' },
     { id: 25, name: '流星塔', element: ELEMENTS.LIGHT, range: 6, damage: 200, speed: 90, cost: 1000, shape: 'circle', skill: 'meteor', desc: '範圍傷害/金錢' },
     { id: 26, name: '冰封塔', element: ELEMENTS.WATER, range: 4, damage: 30, speed: 60, cost: 800, shape: 'square', skill: 'freeze', desc: '凍結敵人 1秒 (無效BOSS)' },
-    { id: 27, name: '貪婪塔', element: ELEMENTS.NONE, range: 5, damage: 1, speed: 60, cost: 3500, shape: 'diamond', skill: 'greed', desc: '0.2%現金傷/每級+0.05%' },
+    { id: 27, name: '貪婪塔', element: ELEMENTS.NONE, range: 5, damage: 1, speed: 60, cost: 3500, shape: 'diamond', skill: 'greed', desc: '0.4%現金傷/每級+0.1%' },
     { id: 28, name: '藤蔓塔', element: ELEMENTS.POISON, range: 4, damage: 40, speed: 45, cost: 900, shape: 'triangle', skill: 'root', desc: '定身BOSS 0.1s/等' },
     { id: 29, name: '戰鼓塔', element: ELEMENTS.FIRE, range: 3, damage: 0, speed: 60, cost: 1200, shape: 'pentagon', skill: 'buff_damage', desc: '增加周圍塔傷害' },
-    { id: 30, name: '刀塔', element: ELEMENTS.NONE, range: 1.8, damage: 400, speed: 30, cost: 1500, shape: 'square', skill: 'blade', desc: '短距高傷/殺BOSS' },
+    { id: 30, name: '刀塔', element: ELEMENTS.NONE, range: 1.8, damage: 500, speed: 30, cost: 1500, shape: 'square', skill: 'blade', desc: '短距高傷/殺BOSS' },
     { id: 31, name: '鷹眼塔', element: ELEMENTS.WIND, range: 3, damage: 0, speed: 60, cost: 1200, shape: 'circle', skill: 'buff_crit', desc: '增加周圍塔爆擊' },
     { id: 32, name: '星辰塔', element: ELEMENTS.WIND, range: 100, damage: 20, speed: 120, cost: 2500, shape: 'star', skill: 'starfall', desc: '全場傷/壞食物' },
     { id: 33, name: '路障塔', element: ELEMENTS.EARTH, range: 0.5, damage: 0, speed: 0, cost: 500, shape: 'rect', skill: 'barricade', desc: '路障/接觸傷+緩' },
     { id: 34, name: '毒藥塔', element: ELEMENTS.POISON, range: 4, damage: 40, speed: 60, cost: 1800, shape: 'pentagon', skill: 'spawn_poison', desc: '5%造毒食物' },
     { id: 35, name: '時空塔', element: ELEMENTS.DARK, range: 5, damage: 10, speed: 60, cost: 2500, shape: 'diamond', skill: 'teleport', desc: '機率傳送回溯' },
-    { id: 36, name: '商人塔', element: ELEMENTS.NONE, range: 4, damage: 10, speed: 60, cost: 1000, shape: 'square', skill: 'merchant', desc: '幫敵補血/賺錢' }
+    { id: 36, name: '商人塔', element: ELEMENTS.NONE, range: 4, damage: 10, speed: 60, cost: 1000, shape: 'square', skill: 'merchant', desc: '微補血/賺2倍錢' }
 ];
 
 SPECIAL_TOWERS.forEach(t => {
@@ -805,7 +813,7 @@ class Tower {
         // Random Tower: Transform
         if (this.skill === 'transform') {
             this.transformTimer += game.speedFactor;
-            if (this.transformTimer >= 900) { // 10s @ 90fps
+            if (this.transformTimer >= 450) { // 5s @ 90fps (Buffed from 10s)
                 this.morph();
             }
         }
@@ -1051,9 +1059,9 @@ class Tower {
         }
 
         // Greed Tower Damage Logic: 
-        // 0.2% of current Gold + 0.05% per level
+        // 0.4% of current Gold + 0.1% per level (Buffed from 0.2% / 0.05%)
         if (this.skill === 'greed') {
-            const pct = 0.002 + ((this.level - 1) * 0.0005);
+            const pct = 0.004 + ((this.level - 1) * 0.001);
             dmg = Math.floor(game.gold * pct);
             // Cap minimum damage
             if (dmg < 10) dmg = 10;
@@ -1068,9 +1076,12 @@ class Tower {
                 game.particles.push(new TextParticle(neighbor.x, neighbor.y - 10, "獻祭", '#880000'));
             }
         }
+        
+        let chainRemaining = 0;
+        if (this.skill === 'chain') chainRemaining = 3;
 
         game.projectiles.push(new Projectile(
-            this.x, this.y, target, dmg, this.element, 8, isCrit, this.skill, this
+            this.x, this.y, target, dmg, this.element, 8, isCrit, this.skill, this, chainRemaining
         ));
     }
 
@@ -1148,7 +1159,7 @@ class Tower {
 }
 
 class Projectile {
-    constructor(x, y, target, damage, element, speed, isCrit = false, skillEffect = null, sourceTower = null) {
+    constructor(x, y, target, damage, element, speed, isCrit = false, skillEffect = null, sourceTower = null, chainRemaining = 0) {
         this.x = x;
         this.y = y;
         this.target = target;
@@ -1158,6 +1169,7 @@ class Projectile {
         this.isCrit = isCrit;
         this.skillEffect = skillEffect;
         this.sourceTower = sourceTower;
+        this.chainRemaining = chainRemaining;
         this.dead = false;
     }
 
@@ -1176,23 +1188,77 @@ class Projectile {
             
             // Merchant Tower Logic: Heal & Earn
             if (this.skillEffect === 'merchant') {
-                // Heal
-                this.target.hp += this.damage;
+                // Heal (Reduced to 50%)
+                this.target.hp += this.damage * 0.5;
                 if (this.target.hp > this.target.maxHp) this.target.hp = this.target.maxHp;
                 
-                // Earn
-                game.gold += this.damage;
+                // Earn (Increased to 200%)
+                game.gold += this.damage * 2.0;
                 
                 // Visuals
                 game.particles.push(new TextParticle(this.target.x, this.target.y - 20, `+HP`, '#00ff00'));
                 if (this.sourceTower) {
-                    game.particles.push(new TextParticle(this.sourceTower.x, this.sourceTower.y - 30, `+$${this.damage}`, '#ffd700'));
+                    game.particles.push(new TextParticle(this.sourceTower.x, this.sourceTower.y - 30, `+$${Math.floor(this.damage * 2)}`, '#ffd700'));
                 }
                 updateUI();
             } else {
+                // Execute Logic (Dark Tower)
+                if (this.skillEffect === 'execute') {
+                    const missing = this.target.maxHp - this.target.hp;
+                    if (missing > 0) {
+                        this.damage += missing * 0.1; // +10% of missing HP
+                    }
+                }
+
                 // Standard Damage
                 this.target.takeDamage(this.damage, this.element, this.sourceTower);
                 
+                // Knockback (Wind)
+                if (this.skillEffect === 'knockback' && !this.target.isBoss) {
+                     if (Math.random() < 0.3) { // 30% Chance
+                        let newIdx = this.target.pathIndex - 2;
+                        if (newIdx < 0) newIdx = 0;
+                        this.target.pathIndex = newIdx;
+                        // Reset pos
+                        const p = PATH_POINTS[Math.min(newIdx, PATH_POINTS.length-1)];
+                        this.target.x = p.x * TILE_SIZE + TILE_SIZE/2;
+                        this.target.y = p.y * TILE_SIZE + TILE_SIZE/2;
+                        // Reset target
+                        if (newIdx < PATH_POINTS.length - 1) {
+                            this.target.targetX = PATH_POINTS[newIdx + 1].x * TILE_SIZE + TILE_SIZE/2;
+                            this.target.targetY = PATH_POINTS[newIdx + 1].y * TILE_SIZE + TILE_SIZE/2;
+                        }
+                        game.particles.push(new TextParticle(this.target.x, this.target.y - 30, "<<", '#26A69A'));
+                     }
+                }
+
+                // Bash (None - Tier 3)
+                if (this.skillEffect === 'bash') {
+                    if (Math.random() < 0.25) { // 25% Chance
+                        this.target.frozenHard = 30; // 0.3s stun
+                        game.particles.push(new TextParticle(this.target.x, this.target.y - 20, "暈眩!", '#fff'));
+                    }
+                }
+
+                // Chain Lightning (Light)
+                if (this.skillEffect === 'chain' && this.chainRemaining > 0) {
+                     const range = TILE_SIZE * 5;
+                     const candidates = game.enemies.filter(e => 
+                        !e.dead && e !== this.target && 
+                        Math.sqrt((e.x - this.target.x)**2 + (e.y - this.target.y)**2) <= range
+                     );
+                     
+                     if (candidates.length > 0) {
+                         const next = candidates[Math.floor(Math.random() * candidates.length)];
+                         // Chain
+                         game.projectiles.push(new Projectile(
+                             this.target.x, this.target.y, next, 
+                             this.damage * 0.8, this.element, this.speed, 
+                             false, 'chain', this.sourceTower, this.chainRemaining - 1
+                         ));
+                     }
+                }
+
                 // AOE Logic
                 if (this.skillEffect === 'aoe' || this.skillEffect === 'blackhole' || this.skillEffect === 'meteor') {
                     const radius = this.skillEffect === 'blackhole' ? 150 : (this.skillEffect === 'meteor' ? 120 : 100);
@@ -1249,6 +1315,7 @@ class Projectile {
             this.y += (dy/dist) * move;
         }
     }
+
 
     draw() {
         ctx.fillStyle = ELEMENT_COLORS[this.element];
