@@ -114,7 +114,9 @@ let game = {
     mouseY: 0,
     autoNextWaveTimer: 0, // Auto start timer
     isGameStarted: false,
-    foods: []
+    foods: [],
+    acidRainTimer: 0, // Acid Rain Event
+    acidRainTick: 0 // For damage interval
 };
 
 // --- Generators ---
@@ -225,7 +227,12 @@ const SPECIAL_TOWERS = [
     { id: 28, name: '藤蔓塔', element: ELEMENTS.POISON, range: 4, damage: 40, speed: 45, cost: 900, shape: 'triangle', skill: 'root', desc: '定身BOSS 0.1s/等' },
     { id: 29, name: '戰鼓塔', element: ELEMENTS.FIRE, range: 3, damage: 0, speed: 60, cost: 1200, shape: 'pentagon', skill: 'buff_damage', desc: '增加周圍塔傷害' },
     { id: 30, name: '刀塔', element: ELEMENTS.NONE, range: 1.8, damage: 400, speed: 30, cost: 1500, shape: 'square', skill: 'blade', desc: '短距高傷/殺BOSS' },
-    { id: 31, name: '鷹眼塔', element: ELEMENTS.WIND, range: 3, damage: 0, speed: 60, cost: 1200, shape: 'circle', skill: 'buff_crit', desc: '增加周圍塔爆擊' }
+    { id: 31, name: '鷹眼塔', element: ELEMENTS.WIND, range: 3, damage: 0, speed: 60, cost: 1200, shape: 'circle', skill: 'buff_crit', desc: '增加周圍塔爆擊' },
+    { id: 32, name: '星辰塔', element: ELEMENTS.WIND, range: 100, damage: 20, speed: 120, cost: 2500, shape: 'star', skill: 'starfall', desc: '全場傷/壞食物' },
+    { id: 33, name: '路障塔', element: ELEMENTS.EARTH, range: 0.5, damage: 0, speed: 0, cost: 500, shape: 'rect', skill: 'barricade', desc: '路障/接觸傷+緩' },
+    { id: 34, name: '毒藥塔', element: ELEMENTS.POISON, range: 4, damage: 40, speed: 60, cost: 1800, shape: 'pentagon', skill: 'spawn_poison', desc: '5%造毒食物' },
+    { id: 35, name: '時空塔', element: ELEMENTS.DARK, range: 5, damage: 10, speed: 60, cost: 2500, shape: 'diamond', skill: 'teleport', desc: '機率傳送回溯' },
+    { id: 36, name: '商人塔', element: ELEMENTS.NONE, range: 4, damage: 10, speed: 60, cost: 1000, shape: 'square', skill: 'merchant', desc: '幫敵補血/賺錢' }
 ];
 
 SPECIAL_TOWERS.forEach(t => {
@@ -319,15 +326,22 @@ class Enemy {
         this.frozenHard = 0; // Stop (New)
         this.poisoned = 0;
         this.poisonTimer = 0;
+        this.invincible = 0; // Invincibility timer
         
         this.attackCooldown = 0;
         this.revived = false; // 5% chance flag
+        this.bossSpawnTimer = 0; // Boss summon skill
     }
 
     update() {
         // Status Effects
         let currentSpeed = this.speed * game.speedFactor;
         
+        // Acid Rain Effect: 5% Slow
+        if (game.acidRainTimer > 0) {
+            currentSpeed *= 0.95;
+        }
+
         if (this.frozenHard > 0) {
             currentSpeed = 0; // Complete stop
             this.frozenHard -= game.speedFactor; // Decrement frames
@@ -337,6 +351,10 @@ class Enemy {
             this.frozen--;
         }
         
+        // Invincibility
+        if (this.invincible > 0) {
+            this.invincible -= game.speedFactor;
+        }
         
         // Regen
         if (this.hp < this.maxHp && Math.random() < 0.01) {
@@ -373,6 +391,33 @@ class Enemy {
                 nearbyTower.takeDamage(attackDmg); 
                 game.projectiles.push(new Projectile(this.x, this.y, nearbyTower, 0, this.element, 5)); // Visual only
                 this.attackCooldown = 60; // 1 sec attack rate
+            }
+        }
+
+        // Boss Skill: Summon Minion (Every 5s, 10% chance)
+        if (this.isBoss) {
+            this.bossSpawnTimer += game.speedFactor;
+            if (this.bossSpawnTimer >= 450) { // 5 seconds (90 FPS * 5)
+                this.bossSpawnTimer = 0;
+                if (Math.random() < 0.1) { // 10% Chance
+                    // Spawn Minion
+                    // We use current wave config. 
+                    // Note: game.wave is 1-based, array is 0-based.
+                    // If wave is active, game.wave is correct.
+                    const waveIdx = Math.max(0, game.wave - 1);
+                    const minion = new Enemy(waveIdx, true);
+                    
+                    // Sync Position
+                    minion.x = this.x;
+                    minion.y = this.y;
+                    minion.pathIndex = this.pathIndex;
+                    minion.targetX = this.targetX;
+                    minion.targetY = this.targetY;
+                    
+                    // Add to game
+                    game.enemies.push(minion);
+                    game.particles.push(new TextParticle(this.x, this.y - 40, "召喚!", '#ff00ff'));
+                }
             }
         }
 
@@ -442,6 +487,17 @@ class Enemy {
             ctx.stroke();
         }
 
+        // Invincible Aura
+        if (this.invincible > 0) {
+            ctx.beginPath();
+            ctx.arc(0, 0, size/1.2, 0, Math.PI*2);
+            ctx.strokeStyle = '#FFD700'; // Gold
+            ctx.lineWidth = 4;
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset
+        }
+
         // Draw Image
         if (assets.marmot.complete) {
             ctx.drawImage(assets.marmot, -size/2, -size/2, size, size);
@@ -452,6 +508,11 @@ class Enemy {
 // ... (rest of class)
 
     takeDamage(amount, type, sourceTower = null) {
+        if (this.invincible > 0) {
+            game.particles.push(new TextParticle(this.x, this.y - 10, "無敵!", '#FFD700'));
+            return;
+        }
+
         let mult = 1.0;
         // Calculate cumulative multiplier
         this.elements.forEach(elem => {
@@ -516,6 +577,28 @@ class Enemy {
 
         game.gold += this.reward + extraGold;
         game.score += this.reward * 10;
+        
+        // Silence On Death Logic
+        // 5% chance for normal enemies, 100% for Bosses
+        if ((this.isBoss || Math.random() < 0.05) && game.towers.length > 0) {
+            // Silence 1 to 3 towers
+            const count = Math.floor(Math.random() * 3) + 1;
+            // Get active non-silenced towers
+            const validTowers = game.towers.filter(t => !t.dead && t.silenced <= 0);
+            
+            for (let i = 0; i < count; i++) {
+                if (validTowers.length === 0) break;
+                const idx = Math.floor(Math.random() * validTowers.length);
+                const t = validTowers[idx];
+                
+                t.silenced = 270; // 3 seconds @ 90 FPS
+                game.particles.push(new TextParticle(t.x, t.y - 40, "沉默!", '#cccccc'));
+                
+                // Remove to prevent double picking
+                validTowers.splice(idx, 1);
+            }
+        }
+
         updateUI();
     }
 
@@ -553,14 +636,24 @@ class Tower {
         this.skillTimer = 0; // For passive skills
         this.activeSkillCd = 0; // For active skills
 
+        // Status Effects
+        this.silenced = 0; // Timer for silence
+
         // New properties for special towers
         this.transformTimer = 0;
         this.attackSpeedMultiplier = 1.0;
         this.damageMultiplier = 1.0;
         this.critChanceBonus = 0.0;
+        
+        // Barricade Logic
+        this.trappedEnemies = []; // List of enemies currently on the trap
 
         // Health Logic
-        this.maxHp = 100 * type.tier;
+        if (typeId === 33) {
+            this.maxHp = 100; // Lower HP for Barricade
+        } else {
+            this.maxHp = 100 * type.tier;
+        }
         this.hp = this.maxHp;
         this.dead = false;
     }
@@ -617,6 +710,11 @@ class Tower {
     }
 
     triggerActiveSkill() {
+        if (this.silenced > 0) {
+            showNotification("防禦塔已被沉默，無法施放技能!");
+            return false;
+        }
+
         if (this.skill === 'nuke' && this.activeSkillCd <= 0) {
              // Find strongest enemy
              let target = null;
@@ -650,6 +748,17 @@ class Tower {
         // Passive Regen
         if (this.hp < this.maxHp && Math.random() < 0.01) this.hp++;
         
+        // Silence Effect
+        if (this.silenced > 0) {
+            this.silenced -= game.speedFactor;
+            // Visual particle occasionally
+            if (this.silenced % 60 === 0) {
+                game.particles.push(new TextParticle(this.x, this.y - 30, "...", '#888'));
+            }
+            // Can't shoot or use skills
+            return;
+        }
+
         // Active Skill CD
         if (this.activeSkillCd > 0) {
              this.activeSkillCd -= game.speedFactor;
@@ -702,6 +811,66 @@ class Tower {
             updateUI();
         }
         
+        // Time Tower Logic (Teleport)
+        if (this.skill === 'teleport') {
+            // Base Period: 10s. Reduce by 1s per level. Min 1s.
+            let periodSec = 10 - (this.level - 1);
+            if (periodSec < 1) periodSec = 1;
+            const periodFrames = periodSec * FPS;
+
+            if (this.skillTimer >= periodFrames) {
+                this.skillTimer = 0;
+                
+                // Roll Chance: Random 1% ~ 10% + (Level)%
+                const baseChance = Math.random() * 9 + 1; // 1 to 10
+                const finalChance = baseChance + (this.level); 
+                
+                if (Math.random() * 100 < finalChance) {
+                    // Trigger Teleport
+                    // Find target: Random enemy in range
+                    const candidates = game.enemies.filter(e => {
+                        const dist = Math.sqrt((e.x - this.x)**2 + (e.y - this.y)**2);
+                        return dist <= this.baseRange && !e.dead && !e.isBoss; // Cannot teleport Boss? Let's say yes for now, maybe user wants Boss teleport too. 
+                        // Prompt said "Teleport marmot". Boss is marmot. But Boss teleport might be too OP or buggy? 
+                        // Let's allow it but maybe limit distance or make immune?
+                        // User didn't say immune. Let's allow.
+                    });
+                    
+                    if (candidates.length > 0) {
+                        const target = candidates[Math.floor(Math.random() * candidates.length)];
+                        
+                        // Teleport back 5 steps
+                        let newIdx = target.pathIndex - 5;
+                        if (newIdx < 0) newIdx = 0;
+                        
+                        target.pathIndex = newIdx;
+                        // Reset pos to new path point
+                        const p = PATH_POINTS[Math.min(newIdx, PATH_POINTS.length-1)];
+                        target.x = p.x * TILE_SIZE + TILE_SIZE/2;
+                        target.y = p.y * TILE_SIZE + TILE_SIZE/2;
+                        
+                        // Recalculate target
+                        if (newIdx < PATH_POINTS.length - 1) {
+                            target.targetX = PATH_POINTS[newIdx + 1].x * TILE_SIZE + TILE_SIZE/2;
+                            target.targetY = PATH_POINTS[newIdx + 1].y * TILE_SIZE + TILE_SIZE/2;
+                        } else {
+                            // At end (shouldn't happen if we move back, but safe check)
+                            target.targetX = target.x;
+                            target.targetY = target.y;
+                        }
+                        
+                        game.particles.push(new TextParticle(target.x, target.y - 30, "時空回溯!", '#9C27B0')); // Purple
+                        // Visual beam
+                        ctx.strokeStyle = '#9C27B0';
+                        ctx.beginPath();
+                        ctx.moveTo(this.x, this.y);
+                        ctx.lineTo(target.x, target.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
         if (this.skill === 'heal' && this.skillTimer >= 90) { // 1s
             // Find damaged neighbor
             const neighbor = game.towers.find(t => t !== this && !t.dead && t.hp < t.maxHp && 
@@ -716,8 +885,92 @@ class Tower {
 
         if (this.cooldownTimer > 0) {
             // Apply speed buff
-            this.cooldownTimer -= game.speedFactor * this.attackSpeedMultiplier;
+            let speedMult = this.attackSpeedMultiplier;
+            
+            // Acid Rain Effect: 10% Slower Attack (so multiplier decreases)
+            if (game.acidRainTimer > 0) {
+                speedMult *= 0.9;
+            }
+
+            this.cooldownTimer -= game.speedFactor * speedMult;
             return;
+        }
+
+        // --- Poison Tower Logic (Spawn Poison Food) ---
+        if (this.skill === 'spawn_poison') {
+            // Logic: Check every ~1 second (90 frames)
+            // But update runs every frame. We can reuse skillTimer.
+            this.skillTimer += game.speedFactor;
+            if (this.skillTimer >= 90) { // Every 1 second attempt
+                if (Math.random() < 0.05) { // 5% Chance
+                    // Spawn Poison Food
+                    const segIdx = Math.floor(Math.random() * (PATH_POINTS.length - 1));
+                    const p1 = PATH_POINTS[segIdx];
+                    const p2 = PATH_POINTS[segIdx+1];
+                    const t = Math.random();
+                    const fx = (p1.x + (p2.x - p1.x) * t) * TILE_SIZE + TILE_SIZE/2;
+                    const fy = (p1.y + (p2.y - p1.y) * t) * TILE_SIZE + TILE_SIZE/2;
+                    
+                    game.foods.push(new Food(fx, fy, 'poison'));
+                    game.particles.push(new TextParticle(this.x, this.y - 20, "製毒!", '#C6FF00'));
+                }
+                this.skillTimer = 0;
+            }
+            // Poison tower also shoots normally, so we fall through to shooting logic
+        }
+
+        // --- Starfall Tower Logic (Global Attack) ---
+        if (this.skill === 'starfall') {
+            // Attack ALL enemies
+            game.enemies.forEach(e => {
+                game.projectiles.push(new Projectile(this.x, this.y, e, this.getDamage(), this.element, 20, false, null, this));
+            });
+            // Food Destruction
+            // 15% chance to destroy a food item if any exist
+            if (game.foods.length > 0 && Math.random() < 0.15) {
+                const fIdx = Math.floor(Math.random() * game.foods.length);
+                const f = game.foods[fIdx];
+                f.life = 0; // Destroy
+                game.particles.push(new TextParticle(f.x, f.y, "食物破壞!", '#555'));
+            }
+            
+            this.cooldownTimer = this.baseCooldown;
+            return;
+        }
+
+        // --- Barricade Logic (Trap) ---
+        if (this.skill === 'barricade') {
+            // Detect enemies on the same tile (approx < 20 px dist)
+            // We use a list to track entered enemies so we only hit them once per entry
+            
+            // Clean up list for dead/far enemies
+            this.trappedEnemies = this.trappedEnemies.filter(e => 
+                !e.dead && Math.sqrt((e.x - this.x)**2 + (e.y - this.y)**2) < TILE_SIZE
+            );
+
+            game.enemies.forEach(e => {
+                const dist = Math.sqrt((e.x - this.x)**2 + (e.y - this.y)**2);
+                if (dist < TILE_SIZE * 0.5) { // Close contact
+                    if (!this.trappedEnemies.includes(e)) {
+                        // Trigger Trap
+                        this.trappedEnemies.push(e);
+                        
+                        // Damage Calculation: 20~50 + 20 per level (Nerfed)
+                        const min = 20 + (this.level - 1) * 20;
+                        const max = 50 + (this.level - 1) * 20;
+                        const dmg = Math.floor(min + Math.random() * (max - min));
+                        
+                        e.takeDamage(dmg, this.element, this);
+                        e.frozen = 120; // Slow 2s
+                        
+                        game.particles.push(new TextParticle(this.x, this.y - 10, "路障!", '#8D6E63'));
+                        
+                        // Barricade takes damage? (Optional, maybe later)
+                        // this.takeDamage(10);
+                    }
+                }
+            });
+            return; // No shooting
         }
 
         // Find Target
@@ -807,7 +1060,21 @@ class Tower {
         else if (this.shape === 'square') ctx.rect(-12,-12, 24, 24);
         else if (this.shape === 'triangle') {
             ctx.moveTo(0, -15); ctx.lineTo(12, 10); ctx.lineTo(-12, 10); ctx.closePath();
-        } else {
+        } 
+        else if (this.shape === 'diamond') {
+            ctx.moveTo(0, -15); ctx.lineTo(12, 0); ctx.lineTo(0, 15); ctx.lineTo(-12, 0); ctx.closePath();
+        }
+        else if (this.shape === 'star') { // Starfall
+            ctx.moveTo(0,-15); ctx.lineTo(4,-4); ctx.lineTo(15,-4); ctx.lineTo(6,4);
+            ctx.lineTo(9,15); ctx.lineTo(0,8); ctx.lineTo(-9,15); ctx.lineTo(-6,4);
+            ctx.lineTo(-15,-4); ctx.lineTo(-4,-4); ctx.closePath();
+        }
+        else if (this.shape === 'rect') { // Barricade
+            ctx.rect(-18, -8, 36, 16); // Wide rectangle
+            ctx.moveTo(-10, -8); ctx.lineTo(-10, 8);
+            ctx.moveTo(10, -8); ctx.lineTo(10, 8); // Stripes
+        }
+        else {
             ctx.rect(-10,-10, 20, 20); // Default
         }
         ctx.fill();
@@ -826,6 +1093,20 @@ class Tower {
             ctx.fillRect(-15, 15, 30, 4);
             ctx.fillStyle = '#0f0';
             ctx.fillRect(-15, 15, 30 * pct, 4);
+        }
+
+        // Silenced Indicator
+        if (this.silenced > 0) {
+            ctx.fillStyle = 'rgba(50, 50, 50, 0.7)';
+            ctx.beginPath();
+            ctx.arc(0, 0, 15, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText("X", 0, 0);
         }
 
         ctx.restore();
@@ -858,21 +1139,40 @@ class Projectile {
         const move = this.speed * game.speedFactor;
 
         if (dist <= move) {
-            this.target.takeDamage(this.damage, this.element, this.sourceTower);
             
-            // AOE Logic
-            if (this.skillEffect === 'aoe' || this.skillEffect === 'blackhole' || this.skillEffect === 'meteor') {
-                const radius = this.skillEffect === 'blackhole' ? 150 : (this.skillEffect === 'meteor' ? 120 : 100);
-                game.enemies.forEach(e => {
-                    if (e !== this.target && !e.dead) {
-                        const d = Math.sqrt((e.x - this.target.x)**2 + (e.y - this.target.y)**2);
-                        if (d <= radius) {
-                            e.takeDamage(this.damage * (this.skillEffect === 'blackhole' ? 0.8 : 0.5), this.element, this.sourceTower);
+            // Merchant Tower Logic: Heal & Earn
+            if (this.skillEffect === 'merchant') {
+                // Heal
+                this.target.hp += this.damage;
+                if (this.target.hp > this.target.maxHp) this.target.hp = this.target.maxHp;
+                
+                // Earn
+                game.gold += this.damage;
+                
+                // Visuals
+                game.particles.push(new TextParticle(this.target.x, this.target.y - 20, `+HP`, '#00ff00'));
+                if (this.sourceTower) {
+                    game.particles.push(new TextParticle(this.sourceTower.x, this.sourceTower.y - 30, `+$${this.damage}`, '#ffd700'));
+                }
+                updateUI();
+            } else {
+                // Standard Damage
+                this.target.takeDamage(this.damage, this.element, this.sourceTower);
+                
+                // AOE Logic
+                if (this.skillEffect === 'aoe' || this.skillEffect === 'blackhole' || this.skillEffect === 'meteor') {
+                    const radius = this.skillEffect === 'blackhole' ? 150 : (this.skillEffect === 'meteor' ? 120 : 100);
+                    game.enemies.forEach(e => {
+                        if (e !== this.target && !e.dead) {
+                            const d = Math.sqrt((e.x - this.target.x)**2 + (e.y - this.target.y)**2);
+                            if (d <= radius) {
+                                e.takeDamage(this.damage * (this.skillEffect === 'blackhole' ? 0.8 : 0.5), this.element, this.sourceTower);
+                            }
                         }
-                    }
-                });
-                // Visual Effect
-                game.particles.push(new TextParticle(this.target.x, this.target.y - 20, "BOOM!", this.element === '暗' ? '#000' : '#ffa500'));
+                    });
+                    // Visual Effect
+                    game.particles.push(new TextParticle(this.target.x, this.target.y - 20, "BOOM!", this.element === '暗' ? '#000' : '#ffa500'));
+                }
             }
 
             if (this.isCrit) {
@@ -947,10 +1247,20 @@ class TextParticle {
 }
 
 class Food {
-    constructor(x, y) {
+    constructor(x, y, type = null) {
         this.x = x;
         this.y = y;
-        this.type = Math.random() < 0.5 ? 'heal' : 'speed'; // 50/50
+        
+        if (type) {
+            this.type = type;
+        } else {
+            const roll = Math.random();
+            // 45% Heal, 45% Speed, 10% Star
+            if (roll < 0.45) this.type = 'heal';
+            else if (roll < 0.90) this.type = 'speed';
+            else this.type = 'star';
+        }
+        
         this.life = 600; // 10 seconds approx
     }
     
@@ -973,7 +1283,7 @@ class Food {
             ctx.bezierCurveTo(-5, -10 + bob, -10, -5 + bob, 0, 5 + bob);
             ctx.bezierCurveTo(10, -5 + bob, 5, -10 + bob, 0, -5 + bob);
             ctx.fill();
-        } else {
+        } else if (this.type === 'speed') {
             ctx.fillStyle = '#4488ff';
             // Bolt shape
             ctx.beginPath();
@@ -985,6 +1295,56 @@ class Food {
             ctx.lineTo(0, 0 + bob);
             ctx.closePath();
             ctx.fill();
+        } else if (this.type === 'star') { // Star
+            ctx.fillStyle = '#FFD700';
+            // Star shape
+            ctx.beginPath();
+            const spikes = 5;
+            const outerRadius = 8;
+            const innerRadius = 4;
+            let rot = Math.PI / 2 * 3;
+            let x = 0; let y = 0;
+            let step = Math.PI / spikes;
+
+            ctx.moveTo(0, -outerRadius + bob);
+            for (let i = 0; i < spikes; i++) {
+                x = 0 + Math.cos(rot) * outerRadius;
+                y = 0 + bob + Math.sin(rot) * outerRadius;
+                ctx.lineTo(x, y);
+                rot += step;
+
+                x = 0 + Math.cos(rot) * innerRadius;
+                y = 0 + bob + Math.sin(rot) * innerRadius;
+                ctx.lineTo(x, y);
+                rot += step;
+            }
+            ctx.lineTo(0, -outerRadius + bob);
+            ctx.closePath();
+            ctx.fill();
+        } else if (this.type === 'poison') {
+            ctx.fillStyle = '#C6FF00'; // Lime/Poison Green
+            ctx.strokeStyle = '#550055';
+            ctx.lineWidth = 2;
+            
+            // Skull-like or Cross shape
+            ctx.beginPath();
+            ctx.arc(0, -2 + bob, 8, 0, Math.PI*2); // Head
+            ctx.fill();
+            ctx.stroke();
+            
+            ctx.fillStyle = '#550055'; // Eyes
+            ctx.beginPath();
+            ctx.arc(-3, -4 + bob, 2, 0, Math.PI*2);
+            ctx.arc(3, -4 + bob, 2, 0, Math.PI*2);
+            ctx.fill();
+            
+            // Crossbones
+            ctx.strokeStyle = '#C6FF00';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(-6, 6 + bob); ctx.lineTo(6, -6 + bob);
+            ctx.moveTo(-6, -6 + bob); ctx.lineTo(6, 6 + bob);
+            ctx.stroke();
         }
         
         ctx.restore();
@@ -1006,6 +1366,9 @@ function init() {
             <div style="margin-top:2px;">$${t.cost}</div>
         `;
         div.onclick = () => selectTowerToBuild(t.id);
+        div.onmouseenter = (e) => showTooltip(t, e);
+        div.onmouseleave = () => hideTooltip();
+        div.onmousemove = (e) => moveTooltip(e); // Follow mouse
         list.appendChild(div);
     });
 
@@ -1042,6 +1405,41 @@ function gameLoop(timestamp) {
 
 function update() {
     if (game.lives <= 0) return;
+
+    // Acid Rain Logic
+    if (game.acidRainTimer > 0) {
+        game.acidRainTimer -= game.speedFactor;
+        game.acidRainTick += game.speedFactor;
+        
+        // Damage every 1 second (approx 90 frames)
+        if (game.acidRainTick >= 90) {
+            game.acidRainTick = 0;
+            // 2 ~ 5 damage (Nerfed from 10~30)
+            const acidDmg = 2 + Math.floor(Math.random() * 4);
+            
+            game.towers.forEach(t => {
+                if (!t.dead) {
+                    t.hp -= acidDmg;
+                    if (t.hp <= 0) {
+                        t.dead = true;
+                        game.particles.push(new TextParticle(t.x, t.y - 20, "溶解!", '#888'));
+                    } else {
+                        // Less particle spam, maybe only 10% chance to show text per tower
+                        if (Math.random() < 0.1) {
+                            game.particles.push(new TextParticle(t.x, t.y - 20, `-${acidDmg}`, '#ccff00'));
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Random visual rain particle
+        if (Math.random() < 0.3) {
+             const rx = Math.random() * CANVAS_WIDTH;
+             const ry = Math.random() * CANVAS_HEIGHT;
+             game.particles.push(new TextParticle(rx, ry, "|", '#ccff00'));
+        }
+    }
 
 
     // Wave Spawning
@@ -1142,9 +1540,26 @@ function update() {
                 eater.hp += eater.maxHp * 0.2; // Heal 20%
                 if (eater.hp > eater.maxHp) eater.hp = eater.maxHp;
                 game.particles.push(new TextParticle(eater.x, eater.y - 20, "+HP", '#ff0000'));
-            } else {
+            } else if (f.type === 'speed') {
                 eater.speed *= 1.3; // Speed up 30% (permanent for this unit)
                 game.particles.push(new TextParticle(eater.x, eater.y - 20, "加速!", '#0000ff'));
+            } else if (f.type === 'star') {
+                eater.invincible = 300; // 5s @ 60fps (actually game runs at 90fps, so 450 frames for 5s)
+                // Let's use 450 for 5 seconds at 90 FPS
+                eater.invincible = 450;
+                game.particles.push(new TextParticle(eater.x, eater.y - 20, "無敵!", '#FFD700'));
+            } else if (f.type === 'poison') {
+                // Poison Effect: Dmg + Slow
+                // Damage 30% Max HP
+                const dmg = Math.floor(eater.maxHp * 0.3);
+                eater.hp -= dmg;
+                game.particles.push(new TextParticle(eater.x, eater.y - 20, `-${dmg}`, '#C6FF00'));
+                
+                // Slow
+                eater.frozen = 180; // 2 seconds slow
+                game.particles.push(new TextParticle(eater.x, eater.y - 40, "中毒!", '#880088'));
+                
+                if (eater.hp <= 0) eater.die();
             }
         }
     });
@@ -1262,7 +1677,20 @@ function draw() {
                 ctx.globalAlpha = 1.0;
                 
                 // Color indication if valid
-                const valid = !isPath(gx, gy) && !game.towers.find(t => t.gridX === gx && t.gridY === gy);
+                const onPath = isPath(gx, gy);
+                const isBarricade = buildModeId === 33;
+                let validLocation = false;
+
+                if (isBarricade) {
+                    validLocation = onPath; // Barricade MUST be on path
+                } else {
+                    validLocation = !onPath; // Others MUST NOT be on path
+                }
+
+                // Also check for existing towers
+                const existing = game.towers.find(t => t.gridX === gx && t.gridY === gy);
+                const valid = validLocation && !existing;
+
                 ctx.fillStyle = valid ? 'rgba(0, 255, 0, 0.3)' : 'rgba(255, 0, 0, 0.3)';
                 ctx.fillRect(gx * TILE_SIZE, gy * TILE_SIZE, TILE_SIZE, TILE_SIZE);
             }
@@ -1334,31 +1762,43 @@ function onCanvasClick(e) {
     // Validate bounds
     if (x < 0 || x >= CANVAS_WIDTH/TILE_SIZE || y < 0 || y >= CANVAS_HEIGHT/TILE_SIZE) return;
 
-    // Check collision with path
-    if (isPath(x, y)) {
-         showNotification("不能建造在路徑上!");
-         return;
-    }
-
     // Check existing tower
     const existing = game.towers.find(t => t.gridX === x && t.gridY === y);
 
     if (buildModeId !== null) {
-        if (!existing) {
-            // Build
-            const type = TOWER_TYPES[buildModeId];
-            if (game.gold >= type.cost) {
-                game.gold -= type.cost;
-                game.towers.push(new Tower(buildModeId, x, y));
-                buildModeId = null;
-                document.body.style.cursor = 'default';
-                updateUI();
-                showNotification("防禦塔建造完成!");
+        // Build Mode Logic
+        const onPath = isPath(x, y);
+        const isBarricade = buildModeId === 33;
+        
+        if (existing) {
+             showNotification("該位置已被佔用!");
+             return;
+        }
+
+        if (isBarricade) {
+            if (!onPath) {
+                 showNotification("路障必須建造在路徑上!");
+                 return;
             }
         } else {
-            showNotification("該位置已被佔用!");
+            if (onPath) {
+                 showNotification("不能建造在路徑上!");
+                 return;
+            }
+        }
+
+        // Build
+        const type = TOWER_TYPES[buildModeId];
+        if (game.gold >= type.cost) {
+            game.gold -= type.cost;
+            game.towers.push(new Tower(buildModeId, x, y));
+            buildModeId = null;
+            document.body.style.cursor = 'default';
+            updateUI();
+            showNotification("防禦塔建造完成!");
         }
     } else {
+        // Selection Logic
         if (existing) {
             game.selectedTower = existing;
             updateTowerInfo();
@@ -1431,16 +1871,17 @@ const EVENTS = [
     { id: 5, name: "天降橫財", desc: "獲得大量金錢!", weight: 10, action: 'bonus_gold' },
     { id: 6, name: "虛空吞噬", desc: "一座隨機防禦塔消失了...", weight: 5, action: 'destroy_tower' },
     { id: 7, name: "元素突變", desc: "怪物屬性發生改變!", weight: 10, action: 'change_element' },
-    { id: 8, name: "狂暴怒火", desc: "怪物攻擊力倍增!", weight: 5, action: 'double_dmg' } // Note: Enemies attack towers
+    { id: 8, name: "狂暴怒火", desc: "怪物攻擊力倍增!", weight: 5, action: 'double_dmg' }, // Note: Enemies attack towers
+    { id: 9, name: "酸雨腐蝕", desc: "全場減速且塔持續扣血!", weight: 10, action: 'acid_rain' }
 ];
 
 function triggerRandomEvent() {
-    const roll = Math.random() * 100;
+    const roll = Math.random() * 110; // Increased weight sum
     let cum = 0;
     let event = EVENTS[0];
     
     // Normalize weights if needed, here just basic check
-    // Total weight = 40+5+10+10+5+10+5+10+5 = 100
+    // Total weight = 40+5+10+10+5+10+5+10+5+10 = 110
     for (const e of EVENTS) {
         cum += e.weight;
         if (roll < cum) {
@@ -1506,6 +1947,11 @@ function triggerRandomEvent() {
             // Simplest: Add damageMultiplier to game state for this wave
             game.enemyDamageMultiplier = 2.0; 
             break;
+        case 'acid_rain':
+            // Random duration 10-20 seconds (900-1800 frames)
+            const durationSec = 10 + Math.random() * 10;
+            game.acidRainTimer = Math.floor(durationSec * FPS);
+            break;
     }
 }
 
@@ -1519,6 +1965,8 @@ function startNextWave() {
     
     // Reset Wave Specific Modifiers
     game.enemyDamageMultiplier = 1.0; 
+    game.acidRainTimer = 0; // Clear weather on new wave start? Or let it persist? 
+    // Usually weather clears. Let's reset it to be nice.
 
     // Trigger Event at start of wave
     if (game.wave > 1) triggerRandomEvent(); // Skip wave 1 for fairness
@@ -1681,6 +2129,60 @@ function updateTowerInfo() {
     
     document.getElementById('upg-cost').textContent = t.getUpgradeCost();
     document.getElementById('sell-cost').textContent = t.getCost();
+}
+
+// --- Tooltip Logic ---
+function showTooltip(type, e) {
+    const tt = document.getElementById('tooltip');
+    tt.style.display = 'block';
+    
+    // Skill Description logic
+    let skillText = "無";
+    if (type.skill) {
+        skillText = type.skillDesc;
+    }
+    
+    // Format Speed (Lower is faster)
+    let speedText = type.cooldown;
+    if (type.cooldown <= 10) speedText += " (極快)";
+    else if (type.cooldown <= 30) speedText += " (快)";
+    else if (type.cooldown <= 60) speedText += " (中)";
+    else if (type.cooldown <= 90) speedText += " (慢)";
+    else speedText += " (極慢)";
+
+    tt.innerHTML = `
+        <strong>${type.name}</strong>
+        <div class="tt-prop"><span>傷害:</span> <span class="tt-val">${type.damage}</span></div>
+        <div class="tt-prop"><span>攻速:</span> <span class="tt-val">${speedText}</span></div>
+        <div class="tt-prop"><span>範圍:</span> <span class="tt-val">${type.range/TILE_SIZE}</span></div>
+        <div class="tt-prop"><span>屬性:</span> <span class="tt-val" style="color:${type.color}">${type.element}</span></div>
+        <div class="tt-desc">${skillText}</div>
+    `;
+    
+    moveTooltip(e);
+}
+
+function moveTooltip(e) {
+    const tt = document.getElementById('tooltip');
+    const x = e.clientX + 15;
+    const y = e.clientY + 15;
+    
+    // Boundary check to prevent overflow
+    if (y + tt.offsetHeight > window.innerHeight) {
+        tt.style.top = (e.clientY - tt.offsetHeight - 10) + 'px';
+    } else {
+        tt.style.top = y + 'px';
+    }
+    
+    if (x + tt.offsetWidth > window.innerWidth) {
+        tt.style.left = (e.clientX - tt.offsetWidth - 10) + 'px';
+    } else {
+        tt.style.left = x + 'px';
+    }
+}
+
+function hideTooltip() {
+    document.getElementById('tooltip').style.display = 'none';
 }
 
 // Boot

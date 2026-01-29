@@ -324,13 +324,35 @@
             80% { opacity: 1; }
             100% { opacity: 0; }
         }
+        
+        /* Tooltip */
+        #tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: #eee;
+            padding: 10px;
+            border: 1px solid #777;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none; /* Let mouse pass through */
+            z-index: 1000;
+            display: none;
+            max-width: 200px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+            line-height: 1.4;
+        }
+        #tooltip strong { color: #ffca28; display: block; margin-bottom: 5px; font-size: 14px; }
+        .tt-prop { display: flex; justify-content: space-between; color: #aaa; }
+        .tt-val { color: #fff; font-weight: bold; }
+        .tt-desc { margin-top: 8px; color: #4fc3f7; font-style: italic; border-top: 1px solid #444; padding-top: 5px; }
     </style>
 </head>
 <body>
+    <div id="tooltip"></div>
     <div id="splash-screen">
         <div id="splash-content">
             <h1>襲鼠 (100關挑戰)</h1>
-            <img id="splash-img" src="https://raw.githubusercontent.com/weber87na/MarmoTD/main/splash.png" alt="Marmot Defense">
+            <img id="splash-img" src="https://raw.githubusercontent.com/weber87na/MarmoTD/main/splash.png" alt="Marmot Defense" onclick="window.open('https://www.youtube.com/shorts/sTezq-GOTY4', '_blank')" style="cursor:pointer;" title="點擊觀看土撥鼠影片">
             <div style="margin-bottom:10px; font-weight:bold; color:#4fc3f7;">屬性相剋表:</div>
             <div class="element-chart-grid">
                 <div>💧 水 -> 🔥 火 (200%)</div>
