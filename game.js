@@ -86,6 +86,16 @@ const PATH_POINTS = [
     {x: 18, y: 14}, // End
 ];
 
+const TERRAINS = [
+    { id: 0, name: '平原', color: '#333333', buff: null, desc: '標準地形' },
+    { id: 1, name: '火山', color: '#3E2723', buff: 'FIRE', desc: '火屬性 傷害+25%' },
+    { id: 2, name: '深海', color: '#01579B', buff: 'WATER', desc: '水屬性 範圍+25%' },
+    { id: 3, name: '森林', color: '#1B5E20', buff: 'NATURE', desc: '風/土/毒 攻速+15%' },
+    { id: 4, name: '墓地', color: '#311B92', buff: 'DARK', desc: '暗屬性 傷害+25%' },
+    { id: 5, name: '聖地', color: '#F57F17', buff: 'LIGHT', desc: '光屬性 攻速+20%' },
+    { id: 6, name: '荒地', color: '#4E342E', buff: 'PHYSICAL', desc: '無屬性 傷害+15%' }
+];
+
 // --- Global State ---
 
 const canvas = document.getElementById('gameCanvas');
@@ -117,6 +127,7 @@ let game = {
     foods: [],
     acidRainTimer: 0, // Acid Rain Event
     acidRainTick: 0, // For damage interval
+    terrain: [], // 2D array of terrain types
     
     // Player Skills State
     skillPoints: 0,
@@ -696,12 +707,29 @@ class Tower {
         }
         this.hp = this.maxHp;
         this.dead = false;
+
+        // Terrain Range Buff (Ocean)
+        if (game.terrain && game.terrain[x][y]) {
+             const tid = game.terrain[x][y];
+             if (tid === 2 && this.element === ELEMENTS.WATER) { 
+                 this.baseRange *= 1.25; 
+             }
+        }
     }
 
     getDamage() { 
         let dmg = this.baseDamage * Math.pow(1.5, this.level - 1);
         let multiplier = this.damageMultiplier * game.globalDamageMultiplier;
         if (game.overloadTimer > 0) multiplier *= 2.0;
+        
+        // Terrain Damage Buff
+        if (game.terrain && game.terrain[this.gridX][this.gridY]) {
+            const tid = game.terrain[this.gridX][this.gridY];
+            if (tid === 1 && this.element === ELEMENTS.FIRE) multiplier *= 1.25; // Volcano
+            if (tid === 4 && this.element === ELEMENTS.DARK) multiplier *= 1.25; // Graveyard
+            if (tid === 6 && this.element === ELEMENTS.NONE) multiplier *= 1.15; // Wasteland
+        }
+
         return Math.floor(dmg * multiplier);
     }
     
@@ -748,6 +776,15 @@ class Tower {
         // Reset some state
         this.transformTimer = 0;
         game.particles.push(new TextParticle(this.x, this.y - 30, "變身!", '#ffffff'));
+        
+        // Re-apply Terrain Range Buff (Ocean)
+        if (game.terrain && game.terrain[this.gridX][this.gridY]) {
+             const tid = game.terrain[this.gridX][this.gridY];
+             if (tid === 2 && this.element === ELEMENTS.WATER) { 
+                 this.baseRange *= 1.25; 
+             }
+        }
+        
         if (game.selectedTower === this) updateTowerInfo();
     }
 
@@ -932,6 +969,17 @@ class Tower {
             // Acid Rain Effect: 10% Slower Attack (so multiplier decreases)
             if (game.acidRainTimer > 0) {
                 speedMult *= 0.9;
+            }
+
+            // Terrain Speed Buff
+            if (game.terrain && game.terrain[this.gridX][this.gridY]) {
+                const tid = game.terrain[this.gridX][this.gridY];
+                if (tid === 3 && (this.element === ELEMENTS.WIND || this.element === ELEMENTS.EARTH || this.element === ELEMENTS.POISON)) {
+                    speedMult *= 1.15; // Forest
+                }
+                if (tid === 5 && this.element === ELEMENTS.LIGHT) {
+                    speedMult *= 1.20; // Holyland
+                }
             }
 
             this.cooldownTimer -= game.speedFactor * speedMult;
@@ -1452,9 +1500,48 @@ class Food {
     }
 }
 
+// --- Map Generation ---
+
+function generateTerrain() {
+    // Initialize with Plains
+    const cols = CANVAS_WIDTH / TILE_SIZE;
+    const rows = CANVAS_HEIGHT / TILE_SIZE;
+    game.terrain = [];
+    
+    for (let x = 0; x < cols; x++) {
+        game.terrain[x] = [];
+        for (let y = 0; y < rows; y++) {
+            game.terrain[x][y] = 0; // Plains ID
+        }
+    }
+
+    // Seed Random Biomes
+    const numBiomes = 12; // Number of clusters
+    for (let i = 0; i < numBiomes; i++) {
+        const type = Math.floor(Math.random() * (TERRAINS.length - 1)) + 1; // 1 to 6
+        const cx = Math.floor(Math.random() * cols);
+        const cy = Math.floor(Math.random() * rows);
+        const radius = Math.floor(Math.random() * 3) + 2; // 2 to 4 tiles
+
+        // Fill Circle
+        for (let x = Math.max(0, cx - radius); x <= Math.min(cols - 1, cx + radius); x++) {
+            for (let y = Math.max(0, cy - radius); y <= Math.min(rows - 1, cy + radius); y++) {
+                if (Math.sqrt((x - cx)**2 + (y - cy)**2) <= radius) {
+                    // Don't overwrite if it's already a special terrain? 
+                    // Or let it overwrite (latest wins).
+                    // Maybe avoid path? Terrain under path is fine, visually cool.
+                    game.terrain[x][y] = type;
+                }
+            }
+        }
+    }
+}
+
 // --- Engine ---
 
 function init() {
+    generateTerrain();
+
     // Generate UI
     const list = document.getElementById('towers-list');
     TOWER_TYPES.forEach(t => {
@@ -1732,8 +1819,17 @@ function draw() {
     ctx.scale(scale, scale);
 
     // Draw Background/Board Area
-    ctx.fillStyle = '#333';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    // Draw Terrain
+    for (let x = 0; x < game.terrain.length; x++) {
+        for (let y = 0; y < game.terrain[x].length; y++) {
+            const tid = game.terrain[x][y];
+            ctx.fillStyle = TERRAINS[tid].color;
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            // Optional: Draw pattern or border
+            // ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+            // ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        }
+    }
 
     // Draw Path
     ctx.strokeStyle = '#555';
@@ -1830,6 +1926,25 @@ function draw() {
 
                 ctx.fillStyle = valid ? 'rgba(0, 255, 0, 0.3)' : 'rgba(255, 0, 0, 0.3)';
                 ctx.fillRect(gx * TILE_SIZE, gy * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                
+                // Show Ghost Hint if Match
+                if (valid && game.terrain && game.terrain[gx] && game.terrain[gx][gy]) {
+                    const tid = game.terrain[gx][gy];
+                    let match = false;
+                    if (tid === 1 && type.element === ELEMENTS.FIRE) match = true;
+                    if (tid === 2 && type.element === ELEMENTS.WATER) match = true;
+                    if (tid === 3 && ['風','土','毒'].includes(type.element)) match = true;
+                    if (tid === 4 && type.element === ELEMENTS.DARK) match = true;
+                    if (tid === 5 && type.element === ELEMENTS.LIGHT) match = true;
+                    if (tid === 6 && type.element === ELEMENTS.NONE) match = true;
+
+                    if (match) {
+                        ctx.fillStyle = '#fff';
+                        ctx.font = 'bold 12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText("Terrain Buff!", cx, cy - 20);
+                    }
+                }
             }
          }
     }
@@ -2240,7 +2355,26 @@ function updateTowerInfo() {
     info.style.display = 'block';
     
     document.getElementById('sel-name').textContent = TOWER_TYPES[t.typeId].name;
-    document.getElementById('sel-type').textContent = t.element;
+    
+    // Terrain Info
+    let terrainInfo = "";
+    if (game.terrain && game.terrain[t.gridX]) {
+        const tid = game.terrain[t.gridX][t.gridY];
+        const terr = TERRAINS[tid];
+        terrainInfo = ` @ ${terr.name}`;
+        
+        let match = false;
+        if (tid === 1 && t.element === ELEMENTS.FIRE) match = true;
+        if (tid === 2 && t.element === ELEMENTS.WATER) match = true;
+        if (tid === 3 && ['風','土','毒'].includes(t.element)) match = true;
+        if (tid === 4 && t.element === ELEMENTS.DARK) match = true;
+        if (tid === 5 && t.element === ELEMENTS.LIGHT) match = true;
+        if (tid === 6 && t.element === ELEMENTS.NONE) match = true;
+        
+        if (match) terrainInfo += " (UP!)";
+    }
+
+    document.getElementById('sel-type').textContent = t.element + terrainInfo;
     document.getElementById('sel-hp').textContent = `${Math.floor(t.hp)}/${t.maxHp}`;
     
     // Damage Display: Total (Base + Bonus%)
