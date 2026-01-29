@@ -1,88 +1,118 @@
 # AGENTS.md
 
 > **System Context:** This file provides authoritative instructions for AI coding agents operating in this repository.
-> **Goal:** Maintain the lightweight, vanilla JavaScript architecture of the Marmot Defense game without introducing unnecessary complexity.
+> **Goal:** Maintain the lightweight, vanilla JavaScript architecture of the "Marmot Defense" game without introducing unnecessary complexity.
 
 ---
 
 ## 1. Project Overview & Architecture
 
 ### Tech Stack
-- **Language:** Vanilla JavaScript (ES6+)
-- **Platform:** HTML5 Canvas (Browser-based)
-- **Dependencies:** None (No `npm`, `package.json`, or build tools)
-- **Asset Management:** Images loaded directly via `Image()` object (e.g., `MarmotPostfix128.png`).
+- **Language:** Vanilla JavaScript (ES6+).
+- **Platform:** HTML5 Canvas (Browser-based).
+- **Dependencies:** **NONE**. No `npm`, `package.json`, bundlers (Webpack/Vite), or frameworks.
+- **Entry Point:** `index.html` loads `game.js`.
 
 ### Directory Structure
-- `index.html`: Entry point, UI layout, and CSS styles.
-- `game.js`: Contains ALL game logic, classes, and state management.
-- `*.png`: Game assets.
+- `index.html`: Contains HTML structure, UI overlay, and CSS in `<style>` block.
+- `game.js`: Monolithic file (~1400+ lines) containing:
+    -   **Constants & Config:** Game balance settings (`ELEMENT_CHART`, `TOWER_TYPES`, `WAVES`).
+    -   **Global State:** The `game` object.
+    -   **Classes:** `Enemy`, `Tower`, `Projectile`, `TextParticle`.
+    -   **Engine:** `init()`, `gameLoop()`, `update()`, `draw()`.
+    -   **UI Logic:** DOM manipulation functions.
+- `*.png`: Asset files loaded directly via `Image()`.
 
 ---
 
 ## 2. Development Workflow
 
 ### Build & Run
-- **Start Game:** Open `index.html` in any modern web browser.
-- **Reload:** Refresh the browser page to apply changes.
-- **No Build Step:** Do **not** try to run `npm install` or `npm start`.
-
-### Linting & Formatting
-*This project does not use automated linters. Strictly mimic the existing style:*
-- **Indentation:** 4 spaces.
-- **Quotes:** Single quotes `'` preferred.
-- **Semicolons:** Always use semicolons `;`.
-- **Braces:** K&R style (opening brace on the same line).
+- **Start Game:** Open `index.html` directly in a web browser.
+- **Hot Reload:** None. Refresh the browser manually to apply changes.
+- **Forbidden:** Do NOT attempt to run `npm install`, `npm start`, or create build scripts.
 
 ### Testing Strategy
-- **Manual Testing:** Since there is no test runner, verify changes by playing the game.
-- **"Run Single Test":** Interpreted as "Isolate the logic in a console script" or "Create a temporary specific scenario in `init()`" (e.g., spawn a specific tower or enemy immediately).
+- **Manual Testing:** Primary method. Play the game to verify changes.
+- **"Run Single Test":** Since there is no test runner, interpret this as:
+    1.  **Console Test:** Write a snippet to run in the browser console (e.g., `new Tower(0,0,0).getDamage()`).
+    2.  **Scenario Isolation:** Temporarily modify `init()` to spawn a specific entity immediately (e.g., `game.enemies.push(new Enemy(0))`).
+    3.  **Debug Logs:** Use `console.log` for logic verification, but remove them before committing.
 
 ---
 
-## 3. Code Style & Conventions
+## 3. Architecture & State Management
+
+### Global State (`game`)
+The `game` object in `game.js` is the **Single Source of Truth**.
+-   **Do not** create other global variables for state.
+-   **Properties:** `gold`, `lives`, `wave`, `enemies` (array), `towers` (array), `projectiles` (array).
+-   **Reset:** Ensure `game` state is fully reset in `startGame()` or `init()` if adding new state properties.
+
+### Game Loop
+-   **Engine:** `requestAnimationFrame` drives `gameLoop()`.
+-   **Update:** `update()` handles logic (movement, collision, cooldowns).
+-   **Draw:** `draw()` handles all Canvas rendering.
+-   **Coupling:** Entities (`Tower`, `Enemy`) have their own `update()` and `draw()` methods called by the main loop.
+
+### Balance Configuration
+-   **Constants:** `ELEMENT_CHART` defines the rock-paper-scissors logic. **Handle with care.**
+-   **Waves:** `WAVES` array generator defines difficulty.
+-   **Towers:** `TOWER_TYPES` defines tower stats.
+
+---
+
+## 4. Code Style & Conventions
+
+### Formatting
+-   **Indentation:** 4 spaces (Strict).
+-   **Quotes:** Single quotes `'` preferred for JS; Double quotes `"` for HTML attributes.
+-   **Semicolons:** **Always** use semicolons.
+-   **Braces:** K&R style (opening brace on the same line).
+-   **Max Line Length:** Soft limit 100, but flexible for long strings/HTML.
 
 ### Naming Conventions
-- **Constants:** `UPPER_SNAKE_CASE` (e.g., `CANVAS_WIDTH`, `ELEMENTS`).
-- **Classes:** `PascalCase` (e.g., `Tower`, `Enemy`).
-- **Variables/Functions:** `camelCase` (e.g., `gameLoop`, `updateUI`).
-- **DOM IDs:** `kebab-case` in HTML (e.g., `game-container`), accessed via `getElementById`.
+-   **Constants:** `UPPER_SNAKE_CASE` (e.g., `CANVAS_WIDTH`, `ELEMENTS`).
+-   **Classes:** `PascalCase` (e.g., `Tower`, `Enemy`).
+-   **Variables/Functions:** `camelCase` (e.g., `gameLoop`, `updateUI`).
+-   **DOM IDs:** `kebab-case` (e.g., `game-container`), accessed via `getElementById`.
 
-### Global State Management
-- The game state is centralized in the global `game` object.
-- **DO NOT** scatter state variables outside this object unless they are constant configurations.
-
-### Error Handling & User Feedback
-- **Deprecation:** Do **not** use `alert()`.
-- **Preferred Method:** Use `showNotification("Message")` for in-game feedback (e.g., "Not enough gold!").
-
-### CSS & UI
-- Keep CSS within the `<style>` block in `index.html` unless the file grows too large.
-- Use Flexbox/Grid for layout (as seen in `#sidebar` and `.stats`).
+### Error Handling & UI
+-   **No Alerts:** Never use `window.alert()`.
+-   **In-Game Feedback:** Use `showNotification("Message")` for temporary toasts.
+-   **Visual Feedback:** Use `game.particles.push(new TextParticle(...))` for damage numbers or hit effects.
 
 ---
 
-## 4. Agent-Specific Rules
+## 5. Agent-Specific Rules
 
-### Behavior Protocol
-1.  **Vanilla First:** Solve problems using standard Web APIs. Do not suggest installing libraries (React, Phaser, etc.) unless explicitly requested.
-2.  **Single File Logic:** Keep game logic in `game.js`. Do not split into modules (ESM) unless the user asks for a refactor, as this requires a local server to avoid CORS issues.
-3.  **Asset Handling:** When adding images, assume they are local files. If creating placeholders, usage of `ctx` drawing primitives (circles, squares) is preferred over external placeholders.
+### 1. Read Before Write
+`game.js` is large. **Always** read the relevant section (e.g., "Classes", "Engine", "UI Updates") before modifying.
+-   *Search first:* Use `grep` to find where a variable (like `game.gold`) is modified.
 
-### Interaction with Cursor/Copilot
-- **Read First:** Always read `game.js` completely before making changes to understand the coupling between `update()`, `draw()`, and the `game` state.
-- **Performance:** Be mindful of the `gameLoop`. Avoid heavy computations in `draw()` or `update()` that could drop FPS below 60.
+### 2. Vanilla & Simple
+-   **No Modules:** Do not split `game.js` into ES modules (`import/export`) unless requested. It breaks local file opening (CORS).
+-   **No External Libs:** Do not suggest generic UI libraries. Use standard HTML/CSS.
+
+### 3. Asset Handling
+-   **Missing Assets:** If adding a new feature that needs art, use **Canvas primitives** (circles, rects, colors) first.
+-   **Placeholders:** If you must use an image, use a distinct color or label it in `draw()` until the user provides the asset.
+
+### 4. Performance
+-   **FPS:** Target 60-90 FPS.
+-   **Optimization:** Avoid creating objects (like `new Vector()`) inside the `gameLoop` or `draw()` methods. Reuse objects or use raw numbers (x, y).
+-   **Loops:** Use `for` loops or `forEach` for entity arrays. `filter` is used for cleanup (dead entities).
 
 ---
 
-## 5. Git & Version Control
+## 6. Git & Version Control
 
 ### Commit Messages
-- **Format:** `<type>: <subject>`
-- **Types:**
-    - `feat`: New game mechanics (e.g., new tower, enemy type).
-    - `fix`: Bug fix (e.g., collision detection, UI glitch).
-    - `style`: Visual changes (CSS, canvas drawing).
-    - `refactor`: Code cleanup without logic change.
-
-*Example:* `feat: add poison damage effect to enemies`
+-   **Format:** `<type>: <subject>`
+-   **Types:**
+    -   `feat`: New game mechanics, towers, enemies.
+    -   `fix`: Bug fix (collision, logic errors).
+    -   `style`: Visual changes (CSS, canvas drawing, formatting).
+    -   `refactor`: Code cleanup without logic change.
+    -   `docs`: Updating AGENTS.md or README.
+-   **Example:** `feat: add ice element slow effect`

@@ -1,23 +1,53 @@
-# Marmot Defense
+# 襲鼠 (MarmoTD) - 元素塔防
 
-A hardcore tower defense game featuring elemental marmots.
+一個基於原生 JavaScript 開發的硬核元素塔防遊戲。你需要策略性地建造防禦塔，利用屬性相剋機制，抵禦 100 波土撥鼠軍團的進攻。
 
-## How to Play
-1. Open `index.html` in your browser.
-2. **Goal:** Survive 20 waves of marmots.
-3. **Build Towers:** Click a tower card in the sidebar, then click on the map grid.
-4. **Elements Matter:**
-   - **Water** > Fire
-   - **Fire** > Wind
-   - **Wind** > Earth
-   - **Earth** > Water
-   - **Light** <> **Dark** (Deal 2x damage to each other)
-   - **Poison** is effective against biological types (Water, Earth) but weak to elements that disperse it (Fire, Wind).
-5. **Upgrading:** Click an existing tower to see stats, upgrade, or sell.
-6. **Speed:** Use the "1x Speed" button to toggle 2x speed for fast forwarding.
+![Game Screenshot](splash.png)
 
-## Difficulty
-This game is designed to be **hard**. You must use the correct elemental counters to survive later waves. Relying on a single tower type will lead to defeat.
+## 🎮 如何遊玩
 
-## Assets
-Ensure `MarmotPostfix128.png` is in the same folder as `index.html`.
+1. **啟動遊戲**：直接用瀏覽器打開 `index.html` 即可，無需安裝任何依賴或伺服器。
+2. **目標**：守護你的生命值，撐過 **100 波** 敵人的攻擊。
+3. **建造防禦塔**：點擊右側選單的塔樓圖標，然後在地圖網格上點擊建造。
+4. **升級與技能**：點擊地圖上已建造的塔，可以進行升級、販賣，或是施放主動技能（如：核彈）。
+
+## 🔥 遊戲特色
+
+### 1. 元素相剋系統
+這不是一個無腦堆塔的遊戲，屬性剋制至關重要（傷害加成 200%）：
+*   **五行循環**：💧 水 > 🔥 火 > 🍃 風 > 🪨 土 > 💧 水
+*   **光暗對決**：✨ 光 ↔️ 🌑 暗 (互相剋制，造成高額傷害)
+*   **特殊屬性**：☠️ 毒 (對土/水有效，但怕火/風)
+
+### 2. 隨機事件 (Random Events)
+每一波開始時可能會觸發隨機事件，改變戰局：
+*   **正面效果**：天降橫財 (+金幣)、怪物血量減半...
+*   **負面效果**：怪物回血、移動加速、防禦塔被破壞...
+
+### 3. 多樣化的防禦塔
+共有 20+ 種不同功能的塔樓：
+*   **基礎塔**：各元素的單體攻擊塔。
+*   **輔助塔**：治療塔 (回復塔樓血量)、加速塔 (增加周圍攻速)。
+*   **特殊塔**：黑洞塔 (範圍聚怪)、狙擊塔 (超遠距單體)、狂暴塔 (獻祭隊友換取高傷)。
+*   **變形塔**：隨機塔每 10 秒會改變自身屬性與類型。
+
+### 4. 硬核挑戰
+*   每 5 波會出現 **Boss** 級土撥鼠。
+*   怪物會隨著波數成長，後期血量與速度將大幅提升。
+
+## 🛠️ 技術架構
+
+本專案完全使用 **Vanilla JavaScript (ES6)** 編寫，保持輕量與高效：
+*   **無依賴**：沒有 `npm`, `React`, `Webpack`。
+*   **Canvas 繪圖**：高性能渲染數百個彈幕與粒子效果。
+*   **單文件架構**：核心邏輯全部集中在 `game.js` (~1400 行)，方便閱讀與修改。
+
+## 📂 檔案結構
+
+*   `index.html`: 遊戲入口與 UI 介面。
+*   `game.js`: 遊戲核心引擎、邏輯、數據結構。
+*   `AGENTS.md`: AI 輔助開發的規範文件。
+*   `*.png`: 遊戲美術素材。
+
+---
+*Created by Weber Chang & Antigravity*
