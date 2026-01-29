@@ -113,7 +113,8 @@ let game = {
     mouseX: 0,
     mouseY: 0,
     autoNextWaveTimer: 0, // Auto start timer
-    isGameStarted: false
+    isGameStarted: false,
+    foods: []
 };
 
 // --- Generators ---
@@ -218,7 +219,13 @@ const SPECIAL_TOWERS = [
     { id: 22, name: '隨機塔', element: ELEMENTS.NONE, range: 4, damage: 20, speed: 60, cost: 500, shape: 'diamond', skill: 'transform', desc: '每10s變身' },
     { id: 23, name: '輔助攻速塔', element: ELEMENTS.WIND, range: 4, damage: 5, speed: 60, cost: 400, shape: 'triangle', skill: 'buff_speed', desc: '增加隊友攻速' },
     { id: 24, name: '狂暴塔', element: ELEMENTS.FIRE, range: 4, damage: 300, speed: 45, cost: 600, shape: 'pentagon', skill: 'berserk', desc: '極高傷/隊友扣血' },
-    { id: 25, name: '流星塔', element: ELEMENTS.LIGHT, range: 6, damage: 200, speed: 90, cost: 1000, shape: 'circle', skill: 'meteor', desc: '範圍傷害/金錢' }
+    { id: 25, name: '流星塔', element: ELEMENTS.LIGHT, range: 6, damage: 200, speed: 90, cost: 1000, shape: 'circle', skill: 'meteor', desc: '範圍傷害/金錢' },
+    { id: 26, name: '冰封塔', element: ELEMENTS.WATER, range: 4, damage: 30, speed: 60, cost: 800, shape: 'square', skill: 'freeze', desc: '凍結敵人 1秒 (無效BOSS)' },
+    { id: 27, name: '貪婪塔', element: ELEMENTS.NONE, range: 5, damage: 1, speed: 60, cost: 3000, shape: 'diamond', skill: 'greed', desc: '0.5%現金傷/每級+0.1%' },
+    { id: 28, name: '藤蔓塔', element: ELEMENTS.POISON, range: 4, damage: 40, speed: 45, cost: 900, shape: 'triangle', skill: 'root', desc: '定身BOSS 0.1s/等' },
+    { id: 29, name: '戰鼓塔', element: ELEMENTS.FIRE, range: 3, damage: 0, speed: 60, cost: 1200, shape: 'pentagon', skill: 'buff_damage', desc: '增加周圍塔傷害' },
+    { id: 30, name: '刀塔', element: ELEMENTS.NONE, range: 1.8, damage: 400, speed: 30, cost: 1500, shape: 'square', skill: 'blade', desc: '短距高傷/殺BOSS' },
+    { id: 31, name: '鷹眼塔', element: ELEMENTS.WIND, range: 3, damage: 0, speed: 60, cost: 1200, shape: 'circle', skill: 'buff_crit', desc: '增加周圍塔爆擊' }
 ];
 
 SPECIAL_TOWERS.forEach(t => {
@@ -244,36 +251,62 @@ for (let i = 0; i < 100; i++) {
     const isBoss = (i + 1) % 5 === 0;
     const elementKey = ELEMENT_KEYS_ORIGINAL[(i + 2) % 8];
     const element = ELEMENTS[elementKey];
+    
+    // Multi-element Logic: Bosses after level 5 get a second element
+    const waveElements = [element];
+    if (isBoss && i > 5) {
+        // Add the opposing or next element as secondary
+        const secondaryKey = ELEMENT_KEYS_ORIGINAL[(i + 5) % 8];
+        waveElements.push(ELEMENTS[secondaryKey]);
+    }
+
     // Significantly increased HP scaling
     const baseHP = 150 * Math.pow(1.15, i); // Lowered slightly for 100 levels to prevent infinity
-    const count = isBoss ? 3 : (10 + Math.floor(i / 2));
+    // Boss Waves now have Minions: 3 Bosses + 10 Minions = 13
+    const count = isBoss ? 13 : (10 + Math.floor(i / 2));
     const speed = 1.0 + (i % 3) * 0.5;
     
     WAVES.push({
         level: i + 1,
         elementKey: elementKey,
-        element: element,
+        element: element, // Primary (for legacy/display mainly)
+        elements: waveElements, // All elements
         count: count,
         hp: Math.floor(baseHP * (isBoss ? 10 : 1)), // Boss has 10x HP
         speed: isBoss ? speed * 0.5 : speed, // Boss is slower
-        interval: isBoss ? 120 : (60 - Math.min(i, 40)),
+        interval: isBoss ? 60 : (60 - Math.min(i, 40)), // Faster interval for boss wave mixed spawn
         reward: (10 + Math.floor(i * 1.5)) * (isBoss ? 10 : 1),
         scale: (0.6 + (i % 4) * 0.1) * (isBoss ? 2.5 : 1), // Boss is huge
-        isBoss: isBoss
+        isBoss: isBoss,
+        bossCount: 3 // Track how many actual bosses
     });
 }
 // --- Classes ---
 
 class Enemy {
-    constructor(waveIdx) {
+    constructor(waveIdx, isMinion = false) {
         const config = WAVES[waveIdx];
-        this.hp = config.hp;
-        this.maxHp = config.hp;
-        this.speed = config.speed;
-        this.element = config.element;
-        this.reward = config.reward;
-        this.scale = config.scale;
-        this.isBoss = config.isBoss;
+        
+        this.isBoss = config.isBoss && !isMinion;
+        this.isMinion = isMinion;
+
+        // Stats Adjustment for Minions in Boss Wave
+        if (this.isMinion) {
+            this.hp = config.hp / 20; // Weak minions
+            this.maxHp = this.hp;
+            this.speed = config.speed * 1.5; // Fast minions
+            this.scale = 0.5;
+            this.reward = Math.floor(config.reward / 20);
+        } else {
+            this.hp = config.hp;
+            this.maxHp = config.hp;
+            this.speed = config.speed;
+            this.scale = config.scale;
+            this.reward = config.reward;
+        }
+
+        this.elements = [...config.elements]; 
+        this.element = this.elements[0]; 
         
         // Pathing
         this.pathIndex = 0;
@@ -282,20 +315,28 @@ class Enemy {
         this.targetX = PATH_POINTS[1].x * TILE_SIZE + TILE_SIZE/2;
         this.targetY = PATH_POINTS[1].y * TILE_SIZE + TILE_SIZE/2;
         
-        this.frozen = 0;
+        this.frozen = 0; // Slow
+        this.frozenHard = 0; // Stop (New)
         this.poisoned = 0;
         this.poisonTimer = 0;
         
         this.attackCooldown = 0;
+        this.revived = false; // 5% chance flag
     }
 
     update() {
         // Status Effects
         let currentSpeed = this.speed * game.speedFactor;
-        if (this.frozen > 0) {
+        
+        if (this.frozenHard > 0) {
+            currentSpeed = 0; // Complete stop
+            this.frozenHard -= game.speedFactor; // Decrement frames
+            // Visual effect? Blue tint is handled in draw maybe
+        } else if (this.frozen > 0) {
             currentSpeed *= 0.5;
             this.frozen--;
         }
+        
         
         // Regen
         if (this.hp < this.maxHp && Math.random() < 0.01) {
@@ -372,8 +413,20 @@ class Enemy {
         
         // Elemental Aura / Glow
         ctx.shadowBlur = 15;
-        ctx.shadowColor = ELEMENT_COLORS[this.element];
-        ctx.strokeStyle = ctx.shadowColor;
+        
+        if (this.elements.length > 1) {
+            // Gradient for multi-element
+            const grad = ctx.createLinearGradient(-size/2, -size/2, size/2, size/2);
+            this.elements.forEach((elem, idx) => {
+                grad.addColorStop(idx / (this.elements.length - 1), ELEMENT_COLORS[elem]);
+            });
+            ctx.strokeStyle = grad;
+            ctx.shadowColor = ELEMENT_COLORS[this.elements[0]]; // Shadow defaults to primary
+        } else {
+            ctx.shadowColor = ELEMENT_COLORS[this.element];
+            ctx.strokeStyle = ctx.shadowColor;
+        }
+
         ctx.lineWidth = 3;
         
         ctx.beginPath();
@@ -398,8 +451,13 @@ class Enemy {
     }
 // ... (rest of class)
 
-    takeDamage(amount, type) {
-        const mult = ELEMENT_CHART[type][this.element] || 1.0;
+    takeDamage(amount, type, sourceTower = null) {
+        let mult = 1.0;
+        // Calculate cumulative multiplier
+        this.elements.forEach(elem => {
+            mult *= (ELEMENT_CHART[type][elem] || 1.0);
+        });
+
         const finalDmg = amount * mult;
         this.hp -= finalDmg;
         
@@ -412,12 +470,51 @@ class Enemy {
             game.particles.push(new TextParticle(this.x, this.y - 10, Math.floor(finalDmg), color));
         }
 
-        if (this.hp <= 0) this.die();
+        if (this.hp <= 0) this.die(sourceTower);
     }
 
-    die() {
+    die(killer = null) {
+        // Resurrection Logic (5%)
+        if (!this.revived && !this.isMinion && !this.isSplit && Math.random() < 0.05) {
+            this.revived = true;
+            this.hp = this.maxHp * 2;
+            this.maxHp = this.hp;
+            this.dead = false; 
+            game.particles.push(new TextParticle(this.x, this.y - 30, "復活!", '#00ffff'));
+            showNotification("怪物復活! 血量加倍!");
+            return;
+        }
+
+        // Split Logic (5%) - Only if not already a split/minion/boss
+        // Let's allow Bosses to split into mini-bosses too? Maybe too hard.
+        // Rule: 5% chance to spawn a new enemy with 50% HP.
+        if (!this.isMinion && !this.isSplit && !this.revived && Math.random() < 0.05) {
+             const split = new Enemy(game.wave - 1, true); // Use minion flag for stats base
+             // Custom override
+             split.x = this.x;
+             split.y = this.y;
+             split.pathIndex = this.pathIndex;
+             split.targetX = this.targetX;
+             split.targetY = this.targetY;
+             split.hp = this.maxHp * 0.5;
+             split.maxHp = split.hp;
+             split.scale = this.scale * 0.8;
+             split.isSplit = true; // Mark as split to prevent infinite chain
+             
+             game.enemies.push(split);
+             game.particles.push(new TextParticle(this.x, this.y - 30, "分裂!", '#ff00ff'));
+        }
+
         this.dead = true;
-        game.gold += this.reward;
+        
+        // Extra Gold for Greed Tower Kill
+        let extraGold = 0;
+        if (killer && killer.skill === 'greed') {
+            extraGold = Math.floor(this.reward * 0.5); // Bonus 50%
+            game.particles.push(new TextParticle(this.x, this.y - 40, `+$${extraGold}`, '#ffd700'));
+        }
+
+        game.gold += this.reward + extraGold;
         game.score += this.reward * 10;
         updateUI();
     }
@@ -459,6 +556,8 @@ class Tower {
         // New properties for special towers
         this.transformTimer = 0;
         this.attackSpeedMultiplier = 1.0;
+        this.damageMultiplier = 1.0;
+        this.critChanceBonus = 0.0;
 
         // Health Logic
         this.maxHp = 100 * type.tier;
@@ -466,7 +565,10 @@ class Tower {
         this.dead = false;
     }
 
-    getDamage() { return Math.floor(this.baseDamage * Math.pow(1.5, this.level - 1)); }
+    getDamage() { 
+        let dmg = this.baseDamage * Math.pow(1.5, this.level - 1);
+        return Math.floor(dmg * this.damageMultiplier);
+    }
     
     // Sell Value depends on HP
     getCost() { 
@@ -566,22 +668,26 @@ class Tower {
         }
 
         // Support Tower: Buff neighbors
-        // Reset multiplier first
+        // Reset multipliers first
         this.attackSpeedMultiplier = 1.0;
+        this.damageMultiplier = 1.0;
+        this.critChanceBonus = 0.0;
         
-        // Look for buffers
-        // Optimization: Global loop might be better, but per tower logic keeps it encapsulated
-        // We only check if WE are being buffed
-        // Actually, let the buffer buff us.
-        // But to keep update() independent, let's scan for buffers nearby.
-        // Or simpler: Iterate all towers, if 'buff_speed', find neighbors.
-        // Let's do the latter here, scanning FOR buffers.
+        // Look for buffers nearby
         for (const other of game.towers) {
-            if (other !== this && !other.dead && other.skill === 'buff_speed') {
+            if (other !== this && !other.dead) {
                 const dist = Math.sqrt((other.x - this.x)**2 + (other.y - this.y)**2);
+                
                 if (dist <= other.baseRange) {
-                    this.attackSpeedMultiplier = 2.0; // Double speed
-                    break; // Non-stacking
+                    if (other.skill === 'buff_speed') {
+                        this.attackSpeedMultiplier = 2.0; // Double speed (non-stacking logic for simplicity)
+                    }
+                    if (other.skill === 'buff_damage') {
+                        this.damageMultiplier = 1.5; // +50% Damage
+                    }
+                    if (other.skill === 'buff_crit') {
+                        this.critChanceBonus = 0.3; // +30% Crit Chance
+                    }
                 }
             }
         }
@@ -640,9 +746,30 @@ class Tower {
         let dmg = this.getDamage();
         let isCrit = false;
         
-        if (this.skill === 'crit' && Math.random() < 0.25) { // 25% Crit
+        let critChance = 0.0;
+        if (this.skill === 'crit') critChance += 0.25;
+        critChance += this.critChanceBonus;
+
+        if (Math.random() < critChance) { 
             dmg *= 2;
             isCrit = true;
+        }
+        
+        // Blade Tower Logic
+        if (this.skill === 'blade') {
+            if (target.isBoss) {
+                dmg *= 3; // 3x Damage to Bosses
+                game.particles.push(new TextParticle(this.x, this.y - 20, "斬殺!", '#ff0000'));
+            }
+        }
+
+        // Greed Tower Damage Logic: 
+        // 0.5% of current Gold + 0.1% per level
+        if (this.skill === 'greed') {
+            const pct = 0.005 + ((this.level - 1) * 0.001);
+            dmg = Math.floor(game.gold * pct);
+            // Cap minimum damage
+            if (dmg < 10) dmg = 10;
         }
 
         // Berserk Logic: Drain ally HP
@@ -656,7 +783,7 @@ class Tower {
         }
 
         game.projectiles.push(new Projectile(
-            this.x, this.y, target, dmg, this.element, 8, isCrit, this.skill
+            this.x, this.y, target, dmg, this.element, 8, isCrit, this.skill, this
         ));
     }
 
@@ -706,7 +833,7 @@ class Tower {
 }
 
 class Projectile {
-    constructor(x, y, target, damage, element, speed, isCrit = false, skillEffect = null) {
+    constructor(x, y, target, damage, element, speed, isCrit = false, skillEffect = null, sourceTower = null) {
         this.x = x;
         this.y = y;
         this.target = target;
@@ -715,6 +842,7 @@ class Projectile {
         this.speed = speed;
         this.isCrit = isCrit;
         this.skillEffect = skillEffect;
+        this.sourceTower = sourceTower;
         this.dead = false;
     }
 
@@ -730,7 +858,7 @@ class Projectile {
         const move = this.speed * game.speedFactor;
 
         if (dist <= move) {
-            this.target.takeDamage(this.damage, this.element);
+            this.target.takeDamage(this.damage, this.element, this.sourceTower);
             
             // AOE Logic
             if (this.skillEffect === 'aoe' || this.skillEffect === 'blackhole' || this.skillEffect === 'meteor') {
@@ -739,7 +867,7 @@ class Projectile {
                     if (e !== this.target && !e.dead) {
                         const d = Math.sqrt((e.x - this.target.x)**2 + (e.y - this.target.y)**2);
                         if (d <= radius) {
-                            e.takeDamage(this.damage * (this.skillEffect === 'blackhole' ? 0.8 : 0.5), this.element);
+                            e.takeDamage(this.damage * (this.skillEffect === 'blackhole' ? 0.8 : 0.5), this.element, this.sourceTower);
                         }
                     }
                 });
@@ -754,6 +882,29 @@ class Projectile {
             
             // Special Effects based on Element/Skill
             if (this.element === ELEMENTS.WATER || this.skillEffect === 'slow') this.target.frozen = 60; // Slow 1s
+            
+            // Fix: Ice Tower only freezes minions
+            if (this.skillEffect === 'freeze') {
+                if (!this.target.isBoss) {
+                    this.target.frozenHard = 60; // Freeze 1s (Stop)
+                } else {
+                    game.particles.push(new TextParticle(this.target.x, this.target.y - 10, "免疫!", '#aaa'));
+                }
+            }
+            
+            // Vine Tower Logic: Roots Bosses
+            if (this.skillEffect === 'root') {
+                if (this.target.isBoss) {
+                    // 0.1s + 0.1s per level
+                    // Base level is 1. Duration = (0.1 + (level-1)*0.1)
+                    // Simplified: level * 0.1
+                    const level = this.sourceTower ? this.sourceTower.level : 1;
+                    const durationSec = level * 0.1;
+                    this.target.frozenHard = Math.floor(durationSec * FPS); // Stop movement
+                    game.particles.push(new TextParticle(this.target.x, this.target.y - 30, "纏繞!", '#00ff00'));
+                }
+            }
+
             if (this.element === ELEMENTS.POISON || this.skillEffect === 'poison') {
                 this.target.poisoned = 20; // Dmg/sec
                 this.target.poisonTimer = 0;
@@ -792,6 +943,51 @@ class TextParticle {
         ctx.font = '12px Arial';
         ctx.fillText(this.text, this.x, this.y);
         ctx.globalAlpha = 1.0;
+    }
+}
+
+class Food {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.type = Math.random() < 0.5 ? 'heal' : 'speed'; // 50/50
+        this.life = 600; // 10 seconds approx
+    }
+    
+    update() {
+        this.life -= game.speedFactor;
+    }
+    
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        
+        // Bobbing effect
+        const bob = Math.sin(Date.now() / 200) * 3;
+        
+        if (this.type === 'heal') {
+            ctx.fillStyle = '#ff4444';
+            // Heart shape
+            ctx.beginPath();
+            ctx.moveTo(0, -5 + bob);
+            ctx.bezierCurveTo(-5, -10 + bob, -10, -5 + bob, 0, 5 + bob);
+            ctx.bezierCurveTo(10, -5 + bob, 5, -10 + bob, 0, -5 + bob);
+            ctx.fill();
+        } else {
+            ctx.fillStyle = '#4488ff';
+            // Bolt shape
+            ctx.beginPath();
+            ctx.moveTo(2, -8 + bob);
+            ctx.lineTo(-4, 0 + bob);
+            ctx.lineTo(0, 0 + bob);
+            ctx.lineTo(-2, 8 + bob);
+            ctx.lineTo(4, 0 + bob);
+            ctx.lineTo(0, 0 + bob);
+            ctx.closePath();
+            ctx.fill();
+        }
+        
+        ctx.restore();
     }
 }
 
@@ -854,7 +1050,30 @@ function update() {
             game.spawnTimer -= game.speedFactor;
             if (game.spawnTimer <= 0) {
                 const config = WAVES[game.wave - 1];
-                game.enemies.push(new Enemy(game.wave - 1));
+                let isMinion = false;
+                
+                // Logic for Boss Wave Mixing
+                if (config.isBoss) {
+                    // We spawn 3 Bosses total. The rest are minions.
+                    // Total count is bossCount + minionCount.
+                    // Let's say Bosses appear at the END or interspersed?
+                    // Simple: Random chance if Bosses remaining > 0, else Minion
+                    // Or deterministic: Bosses are last 3.
+                    
+                    // We tracked how many bosses spawned? No, we only track enemiesToSpawn.
+                    // game.enemiesToSpawn counts down.
+                    // If enemiesToSpawn <= 3, force boss.
+                    // But we want to mix them? 
+                    // Let's do: 3 Bosses. Count = 13.
+                    // If enemiesToSpawn <= 3, it's a Boss.
+                    // Else it's a minion.
+                    // This puts Bosses at the end which is dramatic.
+                    if (game.enemiesToSpawn > config.bossCount) {
+                        isMinion = true;
+                    }
+                }
+
+                game.enemies.push(new Enemy(game.wave - 1, isMinion));
                 game.enemiesToSpawn--;
                 game.spawnTimer = config.interval;
             }
@@ -888,6 +1107,47 @@ function update() {
     
     game.particles.forEach(p => p.update());
     game.particles = game.particles.filter(p => p.life > 0);
+
+    // Food Logic
+    // Random Spawn Chance (e.g., 1/300 chance per frame ~ once every 3-4s)
+    if (game.waveActive && Math.random() < 0.003) {
+        // Pick random segment
+        const segIdx = Math.floor(Math.random() * (PATH_POINTS.length - 1));
+        const p1 = PATH_POINTS[segIdx];
+        const p2 = PATH_POINTS[segIdx+1];
+        
+        // Random t between 0 and 1
+        const t = Math.random();
+        const fx = (p1.x + (p2.x - p1.x) * t) * TILE_SIZE + TILE_SIZE/2;
+        const fy = (p1.y + (p2.y - p1.y) * t) * TILE_SIZE + TILE_SIZE/2;
+        
+        game.foods.push(new Food(fx, fy));
+    }
+
+    game.foods.forEach(f => f.update());
+    game.foods = game.foods.filter(f => f.life > 0);
+
+    // Food Collision
+    game.foods.forEach(f => {
+        // Check collision with ANY enemy
+        // Optimization: Find first enemy in range
+        const eater = game.enemies.find(e => {
+            const dist = Math.sqrt((e.x - f.x)**2 + (e.y - f.y)**2);
+            return dist < 20; // Hitbox
+        });
+        
+        if (eater) {
+            f.life = 0; // Consumed
+            if (f.type === 'heal') {
+                eater.hp += eater.maxHp * 0.2; // Heal 20%
+                if (eater.hp > eater.maxHp) eater.hp = eater.maxHp;
+                game.particles.push(new TextParticle(eater.x, eater.y - 20, "+HP", '#ff0000'));
+            } else {
+                eater.speed *= 1.3; // Speed up 30% (permanent for this unit)
+                game.particles.push(new TextParticle(eater.x, eater.y - 20, "加速!", '#0000ff'));
+            }
+        }
+    });
 }
 
 function draw() {
@@ -950,6 +1210,7 @@ function draw() {
     game.enemies.forEach(e => e.draw());
     game.projectiles.forEach(p => p.draw());
     game.particles.forEach(p => p.draw());
+    game.foods.forEach(f => f.draw());
 
     // Highlight Selected
     if (game.selectedTower) {
@@ -1229,8 +1490,14 @@ function triggerRandomEvent() {
             const newElemKey = ELEMENT_KEYS_ORIGINAL[Math.floor(Math.random() * 8)];
             const newElem = ELEMENTS[newElemKey];
             const configE = WAVES[game.wave - 1];
-            if(configE) configE.element = newElem;
-            game.enemies.forEach(e => e.element = newElem);
+            if(configE) {
+                configE.element = newElem;
+                configE.elements = [newElem];
+            }
+            game.enemies.forEach(e => {
+                e.element = newElem;
+                e.elements = [newElem];
+            });
             break;
         case 'double_dmg':
             // Logic handled in enemy attack, maybe add a flag to enemy or global multiplier
@@ -1346,8 +1613,15 @@ function updateUI() {
     // Next Wave Info
     if (game.wave <= 100) {
         const next = WAVES[game.wave - 1];
+        let elemHtml = '';
+        if (next.elements && next.elements.length > 0) {
+            elemHtml = next.elements.map(e => `<span style="color:${ELEMENT_COLORS[e]}">${e}</span>`).join(' + ');
+        } else {
+            elemHtml = `<span style="color:${ELEMENT_COLORS[next.element]}">${next.element}</span>`;
+        }
+        
         document.getElementById('next-wave-details').innerHTML = `
-            屬性: <span style="color:${ELEMENT_COLORS[next.element]}">${next.element}</span><br>
+            屬性: ${elemHtml}<br>
             數量: ${next.count}<br>
             血量: ${next.hp}
         `;
