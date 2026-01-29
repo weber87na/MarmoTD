@@ -91,7 +91,7 @@ const PATH_POINTS = [
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const assets = { marmot: new Image() };
-assets.marmot.src = 'marmot.png';
+assets.marmot.src = 'https://raw.githubusercontent.com/weber87na/flowers/refs/heads/master/marmot.png';
 
 let game = {
     gold: 600,
