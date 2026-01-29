@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Marmot Defense - 襲鼠</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden; /* Hide global scrollbar */
+            background: #222;
+            font-family: 'Microsoft JhengHei', sans-serif;
+        }
+
+        /* Splash Screen */
+        #splash-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #111;
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #eee;
+        }
+        #splash-content {
+            text-align: center;
+            max-width: 800px;
+            padding: 20px;
+            background: rgba(0,0,0,0.8);
+            border-radius: 10px;
+            border: 2px solid #ffca28;
+        }
+        #splash-img {
+            max-width: 100%;
+            max-height: 300px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .element-chart-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            text-align: left;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .start-btn {
+            background: linear-gradient(to bottom, #ffca28, #ff6f00);
+            color: #000;
+            border: none;
+            padding: 15px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 5px;
+            box-shadow: 0 4px 10px rgba(255, 111, 0, 0.4);
+            transition: transform 0.1s;
+        }
+        .start-btn:hover {
+            transform: scale(1.05);
+        }
+
+        /* Game Styles */
+        #game-container {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: #222;
+        }
+
+        #canvas-wrapper {
+            position: relative;
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #111;
+            overflow: hidden;
+        }
+        canvas {
+            background: #444;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            cursor: crosshair;
+            display: block; /* Removes bottom spacing */
+        }
+        #sidebar {
+            width: 350px;
+            background: #2c2c2c; /* Lighter background */
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            border-left: 2px solid #555;
+            height: 100vh; /* Ensure full height */
+            box-sizing: border-box;
+            z-index: 10;
+        }
+        #sidebar-header, #sidebar-footer, .stats, #controls, #selection-info, #wave-info {
+            flex-shrink: 0; /* Prevent shrinking */
+        }
+        h1 { margin: 0 0 10px 0; font-size: 24px; text-align: center; color: #ffca28; }
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            background: #3e3e3e; /* Lighter container */
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.5);
+        }
+        .stat-item { font-size: 14px; color: #ddd; }
+        .stat-value { font-weight: bold; color: #4fc3f7; }
+        
+        #controls {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            background: linear-gradient(to bottom, #666, #555); /* Lighter buttons */
+            color: white;
+            border: 1px solid #777;
+            padding: 8px;
+            cursor: pointer;
+            border-radius: 4px;
+            flex: 1;
+            font-weight: bold;
+            font-family: 'Microsoft JhengHei', sans-serif;
+            text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
+            box-shadow: 0 2px 2px rgba(0,0,0,0.3);
+            transition: all 0.1s;
+        }
+        button:hover { 
+            background: linear-gradient(to bottom, #777, #666);
+            transform: translateY(-1px);
+            box-shadow: 0 3px 3px rgba(0,0,0,0.4);
+        }
+        button:active {
+            transform: translateY(1px);
+            box-shadow: 0 1px 1px rgba(0,0,0,0.3);
+        }
+        button:disabled { 
+            opacity: 0.5; 
+            cursor: not-allowed; 
+            transform: none;
+            box-shadow: none;
+        }
+        button.active { 
+            background: linear-gradient(to bottom, #4fc3f7, #29b6f6);
+            color: #000; 
+            border-color: #0288d1;
+            text-shadow: none;
+        }
+        
+        #towers-list-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            margin-bottom: 15px;
+            min-height: 0; /* Crucial for flex scrolling */
+            border: 1px solid #444;
+            background: #333; /* Lighter list bg */
+            padding: 5px;
+            border-radius: 4px;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.5);
+        }
+        
+        /* Custom Scrollbar for list */
+        #towers-list-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        #towers-list-container::-webkit-scrollbar-track {
+            background: #222; 
+        }
+        #towers-list-container::-webkit-scrollbar-thumb {
+            background: #666; 
+            border-radius: 4px;
+        }
+        #towers-list-container::-webkit-scrollbar-thumb:hover {
+            background: #888; 
+        }
+
+        #towers-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+        .tower-card {
+            background: linear-gradient(to bottom, #444, #3a3a3a); /* Lighter cards */
+            border: 1px solid #555;
+            padding: 5px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-size: 12px;
+            color: #eee;
+            transition: all 0.2s;
+            position: relative;
+            border-radius: 4px;
+            box-shadow: 0 2px 2px rgba(0,0,0,0.2);
+        }
+        .tower-card:hover { 
+            border-color: #ccc; 
+            background: linear-gradient(to bottom, #555, #444);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 4px rgba(0,0,0,0.3);
+        }
+        .tower-card.selected { 
+            border-color: #ffca28; 
+            background: #4a4a30; 
+            box-shadow: 0 0 5px rgba(255, 202, 40, 0.3);
+        }
+        .tower-icon {
+            width: 30px;
+            height: 30px;
+            margin-bottom: 5px;
+            position: relative;
+            box-shadow: 0 2px 2px rgba(0,0,0,0.3);
+        }
+        
+        #selection-info {
+            background: #383838; /* Lighter info box */
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #555;
+            display: none;
+            margin-bottom: 15px;
+            color: #eee;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        #selection-info h3 { margin: 0 0 5px 0; font-size: 16px; color: #ffca28; border-bottom: 1px solid #555; padding-bottom: 5px;}
+        .info-row { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 13px; }
+        
+        .element-badge {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: bold;
+            color: #000;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.2);
+        }
+        
+        #wave-info {
+            margin-top: auto;
+            padding: 10px;
+            background: #383838;
+            border-radius: 5px;
+            font-size: 12px;
+            border: 1px solid #555;
+            color: #eee;
+        }
+
+        /* Speed Toggle */
+        #speed-btn.x2 { 
+            background: linear-gradient(to bottom, #ff9800, #f57c00);
+            color: black; 
+            border-color: #e65100;
+        }
+
+        /* Upgrade Button */
+        #upgrade-btn {
+            background: linear-gradient(to bottom, #4caf50, #388e3c);
+            border-color: #2e7d32;
+        }
+        #upgrade-btn:hover {
+            background: linear-gradient(to bottom, #66bb6a, #43a047);
+        }
+
+        /* Sell Button */
+        #sell-btn {
+            background: linear-gradient(to bottom, #d32f2f, #c62828) !important;
+            border-color: #b71c1c !important;
+        }
+        #sell-btn:hover {
+            background: linear-gradient(to bottom, #e53935, #d32f2f) !important;
+        }
+
+        /* Skill Button */
+        #cast-skill-btn {
+            background: linear-gradient(to bottom, #7b1fa2, #6a1b9a) !important;
+            border-color: #4a148c !important;
+        }
+        #cast-skill-btn:hover {
+            background: linear-gradient(to bottom, #8e24aa, #7b1fa2) !important;
+        }
+        #cast-skill-btn:disabled {
+            background: #555 !important;
+            border-color: #444 !important;
+        }
+
+        /* Notification Overlay */
+        #notification-overlay {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+            z-index: 100;
+        }
+        .notification {
+            background: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 5px;
+            border-left: 5px solid #ffca28;
+            font-size: 16px;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            animation: fadeOut 3s forwards;
+            white-space: nowrap;
+            backdrop-filter: blur(2px);
+        }
+        @keyframes fadeOut {
+            0% { opacity: 0; transform: translateY(-20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            80% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div id="splash-screen">
+        <div id="splash-content">
+            <h1>襲鼠 (100關挑戰)</h1>
+            <img id="splash-img" src="splash.png" alt="Marmot Defense">
+            <div style="margin-bottom:10px; font-weight:bold; color:#4fc3f7;">屬性相剋表:</div>
+            <div class="element-chart-grid">
+                <div>💧 水 -> 🔥 火 (200%)</div>
+                <div>🔥 火 -> 🍃 風 (200%)</div>
+                <div>🍃 風 -> 🪨 土 (200%)</div>
+                <div>🪨 土 -> 💧 水 (200%)</div>
+                <div>✨ 光 <-> 🌑 暗 (互相 200%)</div>
+                <div>☠️ 毒 -> 🪨 土/💧 水 (150%)</div>
+                <div>🔥 火/🍃 風 -> ☠️ 毒 (150%)</div>
+            </div>
+            <button class="start-btn" onclick="startGame()">開始遊戲</button>
+        </div>
+    </div>
+
+    <div id="game-container">
+        <div id="canvas-wrapper">
+            <canvas id="gameCanvas"></canvas>
+            <div id="notification-overlay"></div>
+        </div>
+        <div id="sidebar">
+            <div id="sidebar-header">
+                <h1>襲鼠</h1>
+                
+                <div class="stats">
+                    <div class="stat-item">金錢: <span id="gold-display" class="stat-value">500</span></div>
+                    <div class="stat-item">生命: <span id="lives-display" class="stat-value">20</span></div>
+                    <div class="stat-item">波數: <span id="wave-display" class="stat-value">1 / 20</span></div>
+                    <div class="stat-item">分數: <span id="score-display" class="stat-value">0</span></div>
+                </div>
+
+                <div id="controls">
+                    <button id="start-wave-btn">開始下一波</button>
+                    <button id="speed-btn">1x 速度</button>
+                </div>
+                
+                <div style="font-size: 14px; margin-bottom: 5px; font-weight: bold; color:#ddd; padding-left: 2px;">防禦塔列表</div>
+            </div>
+
+            <div id="towers-list-container">
+                <div id="towers-list">
+                    <!-- Towers generated by JS -->
+                </div>
+            </div>
+
+            <div id="sidebar-footer">
+                <div id="selection-info">
+                    <h3 id="sel-name">防禦塔名稱</h3>
+                    <div class="info-row"><span>屬性:</span> <span id="sel-type"></span></div>
+                    <div class="info-row"><span>血量:</span> <span id="sel-hp"></span></div>
+                    <div class="info-row"><span>傷害:</span> <span id="sel-dmg"></span></div>
+                    <div class="info-row"><span>攻速:</span> <span id="sel-speed"></span></div>
+                    <div class="info-row"><span>範圍:</span> <span id="sel-range"></span></div>
+                    <div class="info-row"><span>等級:</span> <span id="sel-level"></span></div>
+                    <div id="skill-row" class="info-row" style="display:none; color:#4fc3f7;"><span>技能:</span> <span id="sel-skill"></span></div>
+                    
+                    <button id="cast-skill-btn" style="display:none; margin-top:5px; width:100%;">施放技能 (就緒)</button>
+
+                    <div style="display:flex; gap:5px; margin-top:10px;">
+                        <button id="upgrade-btn">升級 ($<span id="upg-cost"></span>)</button>
+                        <button id="sell-btn">出售 ($<span id="sell-cost"></span>)</button>
+                    </div>
+                </div>
+
+                <div id="wave-info">
+                    <div style="font-weight:bold; margin-bottom:5px; color:#ffca28;">下一波資訊:</div>
+                    <div id="next-wave-details">載入中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
