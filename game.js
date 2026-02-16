@@ -282,7 +282,8 @@ const SPECIAL_TOWERS = [
     { id: 33, name: '路障塔', element: ELEMENTS.EARTH, range: 0.5, damage: 0, speed: 0, cost: 500, shape: 'rect', skill: 'barricade', desc: '路障/接觸傷+緩' },
     { id: 34, name: '毒藥塔', element: ELEMENTS.POISON, range: 4, damage: 40, speed: 60, cost: 1800, shape: 'pentagon', skill: 'spawn_poison', desc: '5%造毒食物' },
     { id: 35, name: '時空塔', element: ELEMENTS.DARK, range: 5, damage: 10, speed: 60, cost: 2500, shape: 'diamond', skill: 'teleport', desc: '機率傳送回溯' },
-    { id: 36, name: '商人塔', element: ELEMENTS.NONE, range: 4, damage: 10, speed: 60, cost: 1000, shape: 'square', skill: 'merchant', desc: '微補血/賺2倍錢' }
+    { id: 36, name: '商人塔', element: ELEMENTS.NONE, range: 4, damage: 10, speed: 60, cost: 1000, shape: 'square', skill: 'merchant', desc: '微補血/賺2倍錢' },
+    { id: 37, name: '嘴砲塔', element: ELEMENTS.DARK, range: 6, damage: 9999, speed: 45, cost: 8888, shape: 'star', skill: 'trash_talk', desc: '極高傷/精神攻擊' }
 ];
 
 SPECIAL_TOWERS.forEach(t => {
@@ -1170,6 +1171,11 @@ class Tower {
         
         let chainRemaining = 0;
         if (this.skill === 'chain') chainRemaining = 3;
+
+        if (this.skill === 'trash_talk' && Math.random() < 0.3) {
+             const insults = ["爛!", "嫩!", "下去!", "弱!", "廢!"];
+             game.particles.push(new TextParticle(this.x, this.y - 30, insults[Math.floor(Math.random() * insults.length)], '#fff'));
+        }
 
         game.projectiles.push(new Projectile(
             this.x, this.y, target, dmg, this.element, 8, isCrit, this.skill, this, chainRemaining
@@ -2728,3 +2734,10 @@ window.activateSkill = activateSkill;
 
 // Boot
 window.onload = init;
+
+// God Mode
+window.god = function() {
+    game.gold = 99999;
+    updateUI();
+    showNotification("God Mode Activated! Gold: 99999");
+};
